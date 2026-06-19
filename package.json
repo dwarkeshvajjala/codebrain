@@ -1,0 +1,16 @@
+{
+  "name": "code-brain",
+  "version": "1.0.0",
+  "description": "Personal RAG-style knowledge base built from your own shipped repos.",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "bundle": "node scripts/brain-bundle.js",
+    "refine": "node scripts/brain-refine.js",
+    "all": "node scripts/brain-all.js",
+    "idea": "node scripts/new-idea.js"
+  }
+}

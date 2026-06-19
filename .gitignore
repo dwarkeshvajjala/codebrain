@@ -1,0 +1,13 @@
+# staging for batch runs (context files are regenerated)
+brain/_staging/
+
+# secrets
+.env
+*.env
+
+# node
+node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
