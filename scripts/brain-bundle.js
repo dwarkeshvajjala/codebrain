@@ -14,19 +14,22 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 // ---------- args ----------
-const USAGE = `Usage: node scripts/brain-bundle.js [projectDir] [--out file] [--maxkb N]
+const USAGE = `Usage: node scripts/brain-bundle.js [projectDir] [--out file] [--maxkb N] [--source-url url]
 
 Options:
-  --out file   Write the generated context markdown to this path.
-  --maxkb N    Skip source files larger than N KB. Default: 250.
-  -h, --help   Show this help.`;
+  --out file       Write the generated context markdown to this path.
+  --maxkb N        Skip source files larger than N KB. Default: 250.
+  --source-url url Store the repo/source URL in the generated context.
+  -h, --help       Show this help.`;
 
 const args = process.argv.slice(2);
 let targetDir = process.cwd();
 let outPath = null;
 let maxKb = 250;
+let sourceUrl = '';
 let sawTarget = false;
 
 function readOptionValue(flag, index) {
@@ -46,6 +49,7 @@ if (args.includes('-h') || args.includes('--help')) {
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--out') outPath = path.resolve(readOptionValue(a, i++));
+  else if (a === '--source-url') sourceUrl = readOptionValue(a, i++);
   else if (a === '--maxkb') {
     const parsed = parseInt(readOptionValue(a, i++), 10);
     if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -75,12 +79,21 @@ const projectName = path.basename(ROOT);
 if (!outPath) outPath = path.join(ROOT, `${projectName}.context.md`);
 const MAX_BYTES = maxKb * 1024;
 
+function detectGitUrl() {
+  if (sourceUrl) return sourceUrl;
+  try {
+    return execFileSync('git', ['-C', ROOT, 'config', '--get', 'remote.origin.url'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  } catch {
+    return 'TODO';
+  }
+}
+
 // ---------- exclusions ----------
 const EXCLUDED_DIRS = new Set([
   'node_modules', 'bin', 'obj', 'dist', 'build', 'out', '.next', '.nuxt',
   '.turbo', '.cache', '.git', '.vs', '.vscode', '.idea', '.svelte-kit',
   'vendor', '__pycache__', '.pytest_cache', 'target', 'Pods', 'DerivedData',
-  'coverage'
+  'coverage', '_repos', '_staging'
 ]);
 
 const EXCLUDED_FILES = new Set([
@@ -231,6 +244,7 @@ const FENCE = '````'; // 4 backticks so source files containing ``` don't break 
 stream.write(`# Project Context: ${projectName}\n\n`);
 stream.write(`- Generated: ${new Date().toISOString()}\n`);
 stream.write(`- Source path: ${ROOT}\n`);
+stream.write(`- Git URL: ${detectGitUrl()}\n`);
 stream.write(`- Files included: ${collected.length}\n`);
 stream.write(`- Files skipped (> ${maxKb} KB): ${skippedLarge.length}\n\n`);
 

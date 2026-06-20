@@ -14,6 +14,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { loadEnv } = require('./load-env');
+
+loadEnv();
 
 // ---------- args ----------
 const USAGE = `Usage: node scripts/new-idea.js "<idea title>" [--desc "..."] [--out ./brain] [--model name]

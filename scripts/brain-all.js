@@ -16,10 +16,14 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { loadEnv } = require('./load-env');
+
+loadEnv();
 
 const HERE = __dirname;
 const BUNDLE = path.join(HERE, 'brain-bundle.js');
 const REFINE = path.join(HERE, 'brain-refine.js');
+const UI = path.join(HERE, 'brain-ui.js');
 const TOOL_ROOT = path.resolve(HERE, '..');
 
 // ---------- args ----------
@@ -143,3 +147,8 @@ console.log(`\nDone. Success: ${ok.length}, Failed: ${failed.length}`);
 if (failed.length) console.log('Failed repos:', failed.join(', '));
 console.log(`Brain: ${brainDir}`);
 if (bundleOnly) console.log(`Context files staged in: ${stagingDir}`);
+try {
+  execFileSync('node', [UI, '--out', brainDir], { stdio: 'inherit' });
+} catch (err) {
+  console.warn(`Dashboard not rebuilt: ${err.message.split('\n')[0]}`);
+}

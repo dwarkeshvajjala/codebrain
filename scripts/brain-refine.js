@@ -16,6 +16,10 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
+const { loadEnv } = require('./load-env');
+
+loadEnv();
 
 // ---------- args ----------
 const USAGE = `Usage: node scripts/brain-refine.js <context.md> [--out ./brain] [--model name] [--maxchars N]
@@ -104,35 +108,37 @@ Produce FIVE markdown documents. Rules:
 - Be concise and scannable: short bullets, short lines, grouped. No long paragraphs.
 - For implementations, paste REAL code snippets copied from the source, trimmed to the relevant part.
 - If something is genuinely unknown (e.g. git URL), write "TODO".
+- Do not copy the guidance bullets below. Replace them with project-specific facts from the context.
 
 Output EXACTLY in this delimiter format. Nothing before, after, or between except the documents:
 
 ===FILE:00-overview===
-# ${projectName} — Overview
-- What it is / purpose / domain
-- Tech stack summary
-- Status and notable scope
-- Git URL: TODO
+# ${projectName} - Overview
+- Describe what this project actually does.
+- Summarize the stack from detected files and package metadata.
+- Describe current status/scope from the context.
+- Include the Git URL if it appears in the context.
 
 ===FILE:01-architecture===
-# ${projectName} — Architecture
-- Real folder layout and what each part does
-- Layers and responsibilities
-- Request / data flow
+# ${projectName} - Architecture
+- Explain the real folder layout and what each part does.
+- Explain layers and responsibilities.
+- Explain request/data flow if present; otherwise say what is not present.
 
 ===FILE:02-packages===
-# ${projectName} — Packages
-- Each significant dependency and WHY it is used here (infer from the code)
+# ${projectName} - Packages
+- List each significant dependency and why it is used here.
+- If there are no runtime dependencies, say that clearly.
 
 ===FILE:03-implementations===
-# ${projectName} — Key Implementations
-- The important working pieces: auth, db access, API calls, notable patterns
-- Include real fenced code snippets from the source
+# ${projectName} - Key Implementations
+- Explain the important working pieces and notable patterns.
+- Include real fenced code snippets copied from the source.
 
 ===FILE:04-gotchas===
-# ${projectName} — Decisions & Gotchas
-- Non-obvious decisions and why
-- Things to remember and potential pitfalls
+# ${projectName} - Decisions & Gotchas
+- Explain non-obvious decisions and why they matter.
+- Explain things to remember and potential pitfalls.
 
 PROJECT CONTEXT:
 ${context}`;
@@ -181,9 +187,20 @@ async function main() {
 
   fs.copyFileSync(inputPath, path.join(projDir, 'raw.context.md')); // fallback detail
   rebuildIndex(brainDir);
+  rebuildDashboard(brainDir);
 
   console.log(`Refined "${projectName}" -> ${projDir}`);
   console.log(`Sections: ${written}/5${truncated ? '  (context was truncated — consider --maxchars or split)' : ''}`);
+}
+
+function rebuildDashboard(dir) {
+  const uiScript = path.join(__dirname, 'brain-ui.js');
+  if (!fs.existsSync(uiScript)) return;
+  try {
+    execFileSync('node', [uiScript, '--out', dir], { stdio: 'inherit' });
+  } catch (err) {
+    console.warn(`  ! dashboard not rebuilt: ${err.message.split('\n')[0]}`);
+  }
 }
 
 // ---------- index ----------
