@@ -1,21 +1,33 @@
 # Project Context: codeBrain
 
-- Generated: 2026-06-20T14:43:39.404Z
+- Generated: 2026-06-20T20:00:06.327Z
 - Source path: D:\AI\codeBrain
 - Git URL: https://github.com/dwarkeshvajjala/codebrain.git
 - Files included: 25
-- Files skipped (> 80 KB): 1
+- Files skipped (> 120 KB): 0
 
 ## Detected stack & packages
 
 ### npm - package.json
 **name** code-brain
+**dependencies**
+- cors ^2.8.6
+- express ^5.2.1
+- react ^19.2.7
+- react-dom ^19.2.7
+**devDependencies**
+- @vitejs/plugin-react ^6.0.2
+- concurrently ^10.0.3
+- vite ^8.0.16
 
 ## File type breakdown
 
-- .md: 15
-- .js: 7
+- .md: 10
+- .js: 9
 - (none): 2
+- .html: 1
+- .jsx: 1
+- .css: 1
 - .json: 1
 
 ## File tree
@@ -32,32 +44,30 @@
 |   |   `-- _TEMPLATE.md
 |   `-- projects
 |       |-- .gitkeep
-|       |-- codebrain
-|       |   |-- 00-overview.md
-|       |   |-- 01-architecture.md
-|       |   |-- 02-packages.md
-|       |   |-- 03-implementations.md
-|       |   `-- 04-gotchas.md
-|       `-- interviewmentor
+|       `-- codebrain
 |           |-- 00-overview.md
 |           |-- 01-architecture.md
 |           |-- 02-packages.md
 |           |-- 03-implementations.md
 |           `-- 04-gotchas.md
+|-- client
+|   |-- index.html
+|   `-- src
+|       |-- main.jsx
+|       `-- styles.css
 |-- package.json
-`-- scripts
-    |-- brain-all.js
-    |-- brain-bundle.js
-    |-- brain-import.js
-    |-- brain-refine.js
-    |-- brain-ui.js
-    |-- load-env.js
-    `-- new-idea.js
+|-- scripts
+|   |-- brain-all.js
+|   |-- brain-bundle.js
+|   |-- brain-import.js
+|   |-- brain-refine.js
+|   |-- brain-ui.js
+|   |-- load-env.js
+|   `-- new-idea.js
+|-- server
+|   `-- index.js
+`-- vite.config.js
 ```
-
-## Skipped large files
-
-- brain\index.html (241 KB)
 
 ## Source files
 
@@ -67,6 +77,8 @@
 # staging for batch runs (context files are regenerated)
 brain/_staging/
 brain/_repos/
+brain/_runs/
+dist/
 
 # secrets
 .env
@@ -74,6 +86,11 @@ brain/_repos/
 
 # node
 node_modules/
+
+# local server logs
+brain-server*.log
+api*.log
+client*.log
 
 # OS
 .DS_Store
@@ -437,342 +454,6 @@ git status --short
 
 ````
 
-### brain\projects\interviewmentor\00-overview.md
-
-````markdown
-# interviewMentor - Overview
-
-- Personal interview-prep coach named Mentor.
-- Daily driver gives 3 tasks: Code, Learn, Speak.
-- Tracks daily completion, energy/mood, learning notes, questions, applications, speaking practice, and progress.
-- Tech stack: React 18 + Vite client, Express backend, Supabase Postgres, Groq chat completions, optional Notion REST sync.
-- Source of truth: Supabase. Notion is a one-way reading/notes layer.
-- Secrets stay on the backend. The frontend sends a light `x-app-passcode` header.
-- Status: functional six-tab app; README says the tabs talk to a real backend and are not mocks.
-- Git URL: TODO
-
-## Main Screens
-
-- `Today`: load or seed the day, choose mode, record energy/mood, toggle tasks, send notes, re-plan with AI, close the day.
-- `Roadmap`: reads the 90-day spine and consistency rules.
-- `Questions`: question bank with status cycling and saved answers.
-- `Applications`: job tracker with pipeline status counts.
-- `Speaking`: recording log plus Groq-generated 4-question mock.
-- `Progress`: streak, points, days engaged, question confidence, applications count.
-
-## Useful Entry Points
-
-- Client app: `client/src/App.jsx`
-- API wrapper: `client/src/api.js`
-- Backend app: `server/src/index.js`
-- Daily flow: `server/src/routes/today.js`
-- AI flow: `server/src/routes/ai.js`
-- Planner: `server/src/planner.js`
-- DB schema: `server/db/schema.sql`
-- Raw context: `raw.context.md`
-
-````
-
-### brain\projects\interviewmentor\01-architecture.md
-
-````markdown
-# interviewMentor - Architecture
-
-## Folder Layout
-
-- `client/`: Vite React app.
-- `client/src/api.js`: single fetch wrapper used by every page.
-- `client/src/components/States.jsx`: shared loading, error, and inline notice UI.
-- `client/src/pages/`: six route-level screens: Today, Roadmap, Questions, Applications, Speaking, Progress.
-- `server/`: Express API.
-- `server/src/index.js`: app setup, CORS, passcode guard, route mounting.
-- `server/src/routes/today.js`: day seeding, task toggles, daily logs, day status.
-- `server/src/routes/ai.js`: Groq-backed re-plan, learning feedback, mock interview generation.
-- `server/src/routes/data.js`: generic CRUD for questions, applications, recordings plus roadmap/progress reads.
-- `server/src/planner.js`: deterministic date-to-plan engine.
-- `server/src/groq.js`: plain `fetch` wrapper for Groq chat completions.
-- `server/src/notion.js`: optional one-way Notion sync.
-- `server/db/schema.sql`: Supabase tables and seed questions.
-- `server/src/data/roadmap.json`: 90-day phases and explicit days 1-14.
-- `server/src/data/taskBank.json`: generated-day task pools.
-
-## Request Flow
-
-- Browser calls `api.*` from `client/src/api.js`.
-- `api.js` prefixes `VITE_API_URL` and sends `x-app-passcode`.
-- Express checks `APP_PASSCODE` unless the route is `/api/health`.
-- Routes call Supabase using the service role client from `server/src/supabase.js`.
-- AI routes call Groq from the backend only.
-- Notion sync is best-effort and skipped when Notion env vars are absent.
-
-## Daily Flow
-
-```text
-Today.jsx
-  -> api.getToday()
-  -> GET /api/today
-  -> ensureDay(date)
-  -> planForDate(date)
-  -> Supabase days/tasks/logs
-  -> Today.jsx renders day + tasks + progress chain
-```
-
-## Planning Model
-
-- `PLAN_START_DATE` defaults to `2026-06-17`.
-- Days before the start date return `beforeStart: true`.
-- Days 1-14 are explicit rehabilitation days from `roadmap.json`.
-- Days 15-90 are generated from current phase, weekday focus, and `taskBank.json`.
-- Task picking is deterministic, so the same date produces the same plan.
-
-## Data Model
-
-- `days`: one row per calendar day.
-- `tasks`: day tasks, usually code/learn/speak.
-- `logs`: energy, mood, and reflection by date.
-- `notes`: pasted learning notes plus AI feedback.
-- `questions`: interview question bank.
-- `applications`: job pipeline tracker.
-- `recordings`: speaking-practice log.
-
-````
-
-### brain\projects\interviewmentor\02-packages.md
-
-````markdown
-# interviewMentor - Packages
-
-## Client
-
-- `react`: builds the UI screens and local component state.
-- `react-dom`: mounts the React app.
-- `react-router-dom`: tab routes for Today, Roadmap, Questions, Applications, Speaking, Progress.
-- `vite`: dev server and production build tool.
-- `@vitejs/plugin-react`: React support for Vite.
-
-## Server
-
-- `express`: HTTP API and route mounting.
-- `cors`: allows the configured frontend origin to call the backend.
-- `dotenv`: loads backend environment variables.
-- `@supabase/supabase-js`: service-role Supabase client for all DB operations.
-
-## External APIs Without SDKs
-
-- Groq uses plain `fetch` against `https://api.groq.com/openai/v1/chat/completions`.
-- Notion uses plain `fetch` against `https://api.notion.com/v1/...`.
-- This keeps the server dependency list small and avoids SDK-specific abstractions.
-
-## Runtime Requirements
-
-- Node 18+.
-- Supabase project with `server/db/schema.sql` applied.
-- Backend `.env`: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `APP_PASSCODE`.
-- AI features also need `GROQ_API_KEY` and optionally `GROQ_MODEL`.
-- Notion sync needs `NOTION_TOKEN` and database IDs.
-
-````
-
-### brain\projects\interviewmentor\03-implementations.md
-
-````markdown
-# interviewMentor - Key Implementations
-
-## Shared API Wrapper
-
-All frontend calls go through one function that adds JSON headers and the passcode.
-
-```javascript
-const BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-const PASSCODE = import.meta.env.VITE_APP_PASSCODE || '';
-
-async function req(path, { method = 'GET', body } = {}) {
-  const res = await fetch(BASE + path, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      'x-app-passcode': PASSCODE
-    },
-    body: body ? JSON.stringify(body) : undefined
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
-  return data;
-}
-```
-
-## Backend Passcode Guard
-
-The API is single-user and uses a simple shared secret. Health checks bypass it.
-
-```javascript
-app.use((req, res, next) => {
-  if (req.method === 'OPTIONS') return next();   // CORS preflight
-  if (req.path === '/api/health') return next();
-  const need = process.env.APP_PASSCODE;
-  if (!need) return next();
-  if (req.get('x-app-passcode') === need) return next();
-  return res.status(401).json({ error: 'Unauthorized' });
-});
-```
-
-## Lazy Day Seeding
-
-Opening Today creates the day row and tasks if they do not already exist.
-The insert path handles React StrictMode-style duplicate requests.
-
-```javascript
-async function ensureDay(dateStr) {
-  const plan = planForDate(dateStr);
-  let { data: day } = await supabase.from('days').select('*').eq('the_date', dateStr).maybeSingle();
-
-  if (!day) {
-    const insert = {
-      day_index: plan.dayIndex,
-      the_date: dateStr,
-      week_label: plan.weekLabel,
-      phase: plan.phase,
-      focus: plan.focus,
-      mode: plan.defaultMode || 'normal',
-      status: 'pending'
-    };
-    const { data: created, error: insErr } = await supabase.from('days').insert(insert).select().maybeSingle();
-
-    if (insErr || !created) {
-      const again = await supabase.from('days').select('*').eq('the_date', dateStr).maybeSingle();
-      day = again.data;
-      if (!day) throw insErr || new Error('Could not create or load the day');
-    } else {
-      day = created;
-      if (plan.tasks?.length) {
-        const rows = plan.tasks.map((t, i) => ({
-          day_id: day.id, kind: t.kind, title: t.title, detail: t.detail,
-          resource_url: t.resource_url || '', minutes: t.minutes || null, position: i
-        }));
-        await supabase.from('tasks').insert(rows);
-      }
-    }
-  }
-```
-
-## Deterministic Generated Tasks
-
-Days 15+ combine weekday focus, phase topics, and task-bank fallbacks.
-
-```javascript
-function generateTasks(dayIndex, dateStr) {
-  const phase = phaseForDay(dayIndex);
-  const wd = weekdayTopics(dateStr);
-  const seed = dayIndex;
-
-  const codeTopics  = [...wd.topics, ...(phase ? phase.topics : []), 'csharp', 'sql', 'dotnet', 'dsa'];
-  const learnTopics = [...wd.topics, ...(phase ? phase.topics : []), 'dotnet', 'sql', 'csharp'];
-
-  const code  = firstTopicWithKind(codeTopics, 'code', seed)
-             || firstTopicWithKind(codeTopics, 'speak', seed);
-  const learn = firstTopicWithKind(learnTopics, 'learn', seed + 1);
-  const speakPool = bank.speaking.speak || [];
-  const speak = speakPool.length ? speakPool[dayIndex % speakPool.length] : null;
-```
-
-## Groq Wrapper
-
-The backend keeps the Groq key private and supports JSON-mode responses.
-
-```javascript
-async function chat(messages, { json = false, maxTokens = 700 } = {}) {
-  if (!process.env.GROQ_API_KEY) {
-    return { error: 'GROQ_API_KEY not set in .env' };
-  }
-  try {
-    const res = await fetch(GROQ_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${process.env.GROQ_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: 0.5,
-        max_tokens: maxTokens,
-        ...(json ? { response_format: { type: 'json_object' } } : {}),
-        messages
-      })
-    });
-```
-
-## AI Re-plan Sanitization
-
-Model output is trimmed and normalized before replacing tasks.
-
-```javascript
-const ALLOWED = ['code', 'learn', 'speak'];
-const clean = (out.plan?.tasks || [])
-  .filter(t => t && t.title && String(t.title).trim())
-  .slice(0, 6)
-  .map((t, i) => ({
-    day_id: day.id,
-    kind: ALLOWED.includes(t.kind) ? t.kind : 'learn',
-    title: String(t.title).slice(0, 300),
-    detail: t.detail ? String(t.detail).slice(0, 1500) : '',
-    minutes: Number.isFinite(Number(t.minutes)) ? Number(t.minutes) : null,
-    position: i,
-    resource_url: ''
-  }));
-```
-
-## Generic CRUD Route Factory
-
-Questions, applications, and recordings share a small CRUD router.
-
-```javascript
-function crud(table, { syncFn } = {}) {
-  const r = Router();
-  r.get('/', async (req, res) => {
-    const { data, error } = await supabase.from(table).select('*').order('created_at', { ascending: false });
-    if (error) return res.status(500).json({ error: error.message });
-    res.json({ items: data || [] });
-  });
-  r.post('/', async (req, res) => {
-    const { data, error } = await supabase.from(table).insert(req.body).select().single();
-    if (error) return res.status(500).json({ error: error.message });
-    if (syncFn) syncFn(data).catch(() => {});
-    res.json({ item: data });
-  });
-```
-
-````
-
-### brain\projects\interviewmentor\04-gotchas.md
-
-````markdown
-# interviewMentor - Decisions & Gotchas
-
-## Decisions
-
-- Single-user app by design.
-- Backend uses Supabase service-role key; the browser never talks to Supabase directly.
-- Passcode auth is intentionally light, not multi-user auth.
-- Groq and Notion are plain `fetch` integrations, no SDKs.
-- AI is an adapter around the roadmap, not the source of truth.
-- Notion sync is optional and one-way.
-- Missed days are not treated as debt; `rest` and low-energy modes keep the progress model humane.
-
-## Gotchas
-
-- If `APP_PASSCODE` is unset, the API is open except for local network/firewall boundaries. Set it before deployment.
-- `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are required for real app usage; missing values only produce a warning at startup.
-- `GROQ_API_KEY` is required only for AI features. Without it, normal day/task CRUD still works.
-- Notion calls silently skip unless the relevant Notion env vars are set.
-- `ensureDay()` seeds tasks only when the day row is created; changing `roadmap.json` later will not automatically update already-created days.
-- `PLAN_START_DATE` controls the whole plan index. Moving it after data exists can make old rows inconsistent with the new calendar.
-- `TIMEZONE` defaults to `Asia/Kolkata`; this matters because `todayDate()` is timezone-aware.
-- AI re-plan replaces the day's tasks after sanitizing the model response. If the model returns no usable tasks, the original plan is kept.
-- CRUD routes insert/update `req.body` directly, relying on the single-user trust model and DB schema.
-- The schema has no user_id/RLS scoping yet. Adding a second user requires schema and auth changes, as noted in the README.
-
-````
-
 ### brain\README.md
 
 ````markdown
@@ -783,7 +464,6 @@ function crud(table, { syncFn } = {}) {
 | Project | Summary |
 | --- | --- |
 | [codebrain](./projects/codebrain/00-overview.md) | Personal code-memory tool that turns repos into structured markdown knowledge. |
-| [interviewmentor](./projects/interviewmentor/00-overview.md) | Personal interview-prep coach named Mentor. |
 
 ## Folders
 - `projects/` - one folder per project (00 overview to 04 gotchas + raw context)
@@ -792,6 +472,905 @@ function crud(table, { syncFn } = {}) {
 
 ## Dashboard
 - Open `brain/index.html` for the easier visual browser.
+
+````
+
+### client\index.html
+
+````html
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Code Brain</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
+
+````
+
+### client\src\main.jsx
+
+````jsx
+import React, { useEffect, useMemo, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import './styles.css';
+
+const SECTION_ORDER = [
+  '00-overview',
+  '01-architecture',
+  '02-packages',
+  '03-implementations',
+  '04-gotchas',
+  'raw.context',
+];
+
+const SECTION_LABELS = {
+  '00-overview': 'Overview',
+  '01-architecture': 'Architecture',
+  '02-packages': 'Packages',
+  '03-implementations': 'Implementations',
+  '04-gotchas': 'Gotchas',
+  'raw.context': 'Raw Context',
+};
+
+async function api(path, options = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  return data;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function inlineMarkdown(text) {
+  return escapeHtml(text)
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+}
+
+function markdownToHtml(markdown = '') {
+  const lines = markdown.split(/\r?\n/);
+  const html = [];
+  let inCode = false;
+  let listOpen = false;
+  let table = [];
+
+  const closeList = () => {
+    if (listOpen) html.push('</ul>');
+    listOpen = false;
+  };
+
+  const flushTable = () => {
+    if (!table.length) return;
+    html.push('<table>');
+    table.forEach((row, index) => {
+      if (/^\s*\|?\s*:?-{3,}/.test(row)) return;
+      const cells = row.trim().replace(/^\||\|$/g, '').split('|').map(cell => inlineMarkdown(cell.trim()));
+      html.push('<tr>' + cells.map(cell => index === 0 ? `<th>${cell}</th>` : `<td>${cell}</td>`).join('') + '</tr>');
+    });
+    html.push('</table>');
+    table = [];
+  };
+
+  for (const line of lines) {
+    if (/^`{3,4}/.test(line)) {
+      flushTable();
+      closeList();
+      html.push(inCode ? '</code></pre>' : '<pre><code>');
+      inCode = !inCode;
+      continue;
+    }
+
+    if (inCode) {
+      html.push(`${escapeHtml(line)}\n`);
+      continue;
+    }
+
+    if (/^\|.+\|$/.test(line.trim())) {
+      closeList();
+      table.push(line);
+      continue;
+    }
+
+    flushTable();
+    if (!line.trim()) {
+      closeList();
+      continue;
+    }
+    if (line.startsWith('### ')) {
+      closeList();
+      html.push(`<h3>${inlineMarkdown(line.slice(4))}</h3>`);
+      continue;
+    }
+    if (line.startsWith('## ')) {
+      closeList();
+      html.push(`<h2>${inlineMarkdown(line.slice(3))}</h2>`);
+      continue;
+    }
+    if (line.startsWith('# ')) {
+      closeList();
+      html.push(`<h1>${inlineMarkdown(line.slice(2))}</h1>`);
+      continue;
+    }
+    if (/^[-*]\s+/.test(line)) {
+      if (!listOpen) html.push('<ul>');
+      listOpen = true;
+      html.push(`<li>${inlineMarkdown(line.replace(/^[-*]\s+/, ''))}</li>`);
+      continue;
+    }
+    closeList();
+    html.push(`<p>${inlineMarkdown(line)}</p>`);
+  }
+
+  flushTable();
+  closeList();
+  if (inCode) html.push('</code></pre>');
+  return html.join('\n');
+}
+
+function BrainMark() {
+  return (
+    <div className="brain-mark" aria-hidden="true">
+      <span className="node node-a" />
+      <span className="node node-b" />
+      <span className="node node-c" />
+      <span className="node node-d" />
+      <span className="bridge bridge-a" />
+      <span className="bridge bridge-b" />
+      <span className="bridge bridge-c" />
+    </div>
+  );
+}
+
+function App() {
+  const [health, setHealth] = useState(null);
+  const [projects, setProjects] = useState([]);
+  const [selectedSlug, setSelectedSlug] = useState('');
+  const [selectedSection, setSelectedSection] = useState('00-overview');
+  const [repoUrl, setRepoUrl] = useState('');
+  const [cleanup, setCleanup] = useState(true);
+  const [job, setJob] = useState(null);
+  const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+
+  async function loadProjects(nextSlug) {
+    const data = await api('/api/projects');
+    setProjects(data.projects);
+    if (nextSlug) setSelectedSlug(nextSlug);
+    else if (!selectedSlug && data.projects[0]) setSelectedSlug(data.projects[0].slug);
+  }
+
+  useEffect(() => {
+    api('/api/health').then(setHealth).catch(err => setError(err.message));
+    loadProjects().catch(err => setError(err.message));
+  }, []);
+
+  useEffect(() => {
+    if (!job || !['queued', 'running'].includes(job.status)) return undefined;
+    const timer = setInterval(async () => {
+      try {
+        const data = await api(`/api/jobs/${job.id}`);
+        setJob(data.job);
+        if (data.job.status === 'complete') await loadProjects(data.job.slug);
+      } catch (err) {
+        setError(err.message);
+      }
+    }, 1200);
+    return () => clearInterval(timer);
+  }, [job]);
+
+  const selectedProject = projects.find(project => project.slug === selectedSlug) || projects[0];
+  const sections = selectedProject?.sections || [];
+  const section = sections.find(item => item.key === selectedSection) || sections[0];
+
+  const filteredProjects = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return projects;
+    return projects.filter(project => {
+      const text = [
+        project.title,
+        project.summary,
+        ...project.sections.map(item => item.content),
+      ].join('\n').toLowerCase();
+      return text.includes(needle);
+    });
+  }, [projects, query]);
+
+  async function submitImport(event) {
+    event.preventDefault();
+    setError('');
+    setJob(null);
+    try {
+      const data = await api('/api/import', {
+        method: 'POST',
+        body: JSON.stringify({ repoUrl, cleanup, maxChars: 30000, maxKb: 120 }),
+      });
+      setJob(data.job);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function selectProject(slug) {
+    setSelectedSlug(slug);
+    setSelectedSection('00-overview');
+  }
+
+  return (
+    <main className="shell">
+      <aside className="sidebar">
+        <div className="brand">
+          <BrainMark />
+          <div>
+            <p className="eyebrow">Local code memory</p>
+            <h1>Code Brain</h1>
+          </div>
+        </div>
+
+        <form className="import-card" onSubmit={submitImport}>
+          <label htmlFor="repoUrl">GitHub repo URL</label>
+          <div className="url-row">
+            <input
+              id="repoUrl"
+              value={repoUrl}
+              onChange={event => setRepoUrl(event.target.value)}
+              placeholder="https://github.com/owner/repo"
+            />
+            <button type="submit" disabled={!repoUrl || job?.status === 'running'}>Import</button>
+          </div>
+          <label className="check-row">
+            <input type="checkbox" checked={cleanup} onChange={event => setCleanup(event.target.checked)} />
+            Delete cloned repo automatically after markdown is generated
+          </label>
+          <p className="hint">
+            The backend clones, bundles, refines with Groq, writes markdown, refreshes the brain, then removes the temp clone.
+          </p>
+        </form>
+
+        <div className="status-strip">
+          <span className={health?.groqConfigured ? 'dot ok' : 'dot warn'} />
+          {health?.groqConfigured ? 'Groq key loaded' : 'Groq key missing'}
+        </div>
+
+        <input
+          className="search"
+          value={query}
+          onChange={event => setQuery(event.target.value)}
+          placeholder="Search brain"
+        />
+
+        <div className="project-list">
+          {filteredProjects.map(project => (
+            <button
+              key={project.slug}
+              className={`project-btn ${project.slug === selectedProject?.slug ? 'active' : ''}`}
+              onClick={() => selectProject(project.slug)}
+            >
+              <strong>{project.title}</strong>
+              <span>{project.summary}</span>
+            </button>
+          ))}
+          {!filteredProjects.length && <p className="empty-note">No projects match.</p>}
+        </div>
+      </aside>
+
+      <section className="workspace">
+        <header className="hero">
+          <div>
+            <p className="eyebrow">Autonomous markdown generation</p>
+            <h2>Paste a repo. Grow the brain.</h2>
+            <p>
+              Code Brain turns repos into overview, architecture, package, implementation, gotcha, and raw-context markdown files.
+            </p>
+          </div>
+          <div className="metrics">
+            <span>{projects.length}</span>
+            <small>project{projects.length === 1 ? '' : 's'} indexed</small>
+          </div>
+        </header>
+
+        {error && <div className="notice error">{error}</div>}
+
+        {job && (
+          <section className={`job-panel ${job.status}`}>
+            <div className="job-head">
+              <div>
+                <strong>{job.step}</strong>
+                <span>{job.repoUrl}</span>
+              </div>
+              <b>{job.status}</b>
+            </div>
+            <pre>{job.logs.slice(-18).join('\n') || 'Starting...'}</pre>
+          </section>
+        )}
+
+        <section className="brain-panel">
+          {selectedProject ? (
+            <>
+              <div className="project-head">
+                <div>
+                  <p className="eyebrow">Brain project</p>
+                  <h2>{selectedProject.title}</h2>
+                  <p>{selectedProject.summary}</p>
+                </div>
+              </div>
+
+              <nav className="tabs">
+                {SECTION_ORDER
+                  .filter(key => sections.some(item => item.key === key))
+                  .map(key => (
+                    <button
+                      key={key}
+                      className={key === section?.key ? 'active' : ''}
+                      onClick={() => setSelectedSection(key)}
+                    >
+                      {SECTION_LABELS[key] || key}
+                    </button>
+                  ))}
+              </nav>
+
+              <article className="markdown" dangerouslySetInnerHTML={{ __html: markdownToHtml(section?.content || '') }} />
+            </>
+          ) : (
+            <div className="empty-state">
+              <BrainMark />
+              <h2>No brain projects yet</h2>
+              <p>Paste a GitHub URL to generate the first markdown knowledge folder.</p>
+            </div>
+          )}
+        </section>
+      </section>
+    </main>
+  );
+}
+
+createRoot(document.getElementById('root')).render(<App />);
+
+````
+
+### client\src\styles.css
+
+````css
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f6f7f2;
+  color: #191b16;
+  --ink: #191b16;
+  --muted: #667064;
+  --line: #dfe2d8;
+  --panel: #ffffff;
+  --panel-2: #eef3eb;
+  --accent: #2e6f5f;
+  --accent-dark: #184d42;
+  --accent-soft: #dceee7;
+  --danger: #9b2d24;
+  --code: #151812;
+  --code-ink: #edf3ea;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background:
+    radial-gradient(circle at 15% 8%, rgba(46, 111, 95, .14), transparent 30rem),
+    radial-gradient(circle at 86% 12%, rgba(141, 171, 86, .13), transparent 26rem),
+    linear-gradient(180deg, #fbfcf8, #f3f5ef);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+.shell {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(310px, 380px) minmax(0, 1fr);
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  padding: 24px;
+  border-right: 1px solid var(--line);
+  background: rgba(255, 255, 255, .78);
+  backdrop-filter: blur(16px);
+  overflow: auto;
+}
+
+.workspace {
+  min-width: 0;
+  padding: 28px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 22px;
+}
+
+.brand h1,
+.hero h2,
+.project-head h2,
+.empty-state h2 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.brand h1 {
+  font-size: 25px;
+}
+
+.eyebrow {
+  margin: 0 0 5px;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+
+.brain-mark {
+  position: relative;
+  width: 68px;
+  height: 54px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #e8f3ed, #cfe8dc);
+  border: 1px solid #b9d8cb;
+  box-shadow: inset 0 0 0 6px rgba(255, 255, 255, .45);
+  flex: 0 0 auto;
+}
+
+.brain-mark::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 7px;
+  bottom: 7px;
+  width: 1px;
+  background: rgba(46, 111, 95, .32);
+}
+
+.node,
+.bridge {
+  position: absolute;
+  display: block;
+}
+
+.node {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px rgba(46, 111, 95, .14);
+}
+
+.node-a { left: 15px; top: 13px; }
+.node-b { right: 16px; top: 12px; }
+.node-c { left: 21px; bottom: 12px; }
+.node-d { right: 20px; bottom: 13px; }
+
+.bridge {
+  height: 2px;
+  background: rgba(46, 111, 95, .4);
+  transform-origin: left center;
+}
+
+.bridge-a { left: 26px; top: 21px; width: 24px; transform: rotate(-3deg); }
+.bridge-b { left: 30px; top: 32px; width: 19px; transform: rotate(-27deg); }
+.bridge-c { left: 28px; top: 27px; width: 22px; transform: rotate(25deg); }
+
+.import-card,
+.job-panel,
+.brain-panel,
+.hero {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, .84);
+}
+
+.import-card {
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.import-card label {
+  display: block;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 750;
+  margin-bottom: 8px;
+}
+
+.url-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.url-row input,
+.search {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 11px;
+  outline: none;
+  background: #fff;
+  color: var(--ink);
+}
+
+.url-row input:focus,
+.search:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.url-row button,
+.tabs button {
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  padding: 10px 13px;
+  font-weight: 750;
+}
+
+.url-row button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
+.check-row {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 0;
+  color: var(--muted) !important;
+  font-weight: 650 !important;
+}
+
+.check-row input {
+  margin-top: 3px;
+}
+
+.hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.status-strip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 14px;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.dot.ok { background: #2e7d4f; }
+.dot.warn { background: #c18224; }
+
+.search {
+  margin-bottom: 14px;
+}
+
+.project-list {
+  display: grid;
+  gap: 10px;
+}
+
+.project-btn {
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 12px;
+}
+
+.project-btn:hover,
+.project-btn.active {
+  border-color: #9fc7b8;
+  background: var(--accent-soft);
+}
+
+.project-btn strong {
+  display: block;
+  margin-bottom: 5px;
+}
+
+.project-btn span,
+.empty-note {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 24px;
+  margin: 0 auto 18px;
+  max-width: 1180px;
+}
+
+.hero h2 {
+  font-size: 34px;
+  margin-bottom: 8px;
+}
+
+.hero p,
+.project-head p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.metrics {
+  min-width: 116px;
+  align-self: stretch;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  display: grid;
+  place-content: center;
+  text-align: center;
+}
+
+.metrics span {
+  font-size: 32px;
+  font-weight: 850;
+  color: var(--accent-dark);
+}
+
+.metrics small {
+  color: var(--muted);
+}
+
+.notice,
+.job-panel,
+.brain-panel {
+  max-width: 1180px;
+  margin: 0 auto 18px;
+}
+
+.notice {
+  padding: 12px 14px;
+  border-radius: 8px;
+  border: 1px solid #efc2bd;
+  color: var(--danger);
+  background: #fff4f2;
+}
+
+.job-panel {
+  padding: 16px;
+}
+
+.job-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+
+.job-head strong,
+.job-head span {
+  display: block;
+}
+
+.job-head span {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.job-head b {
+  color: var(--accent-dark);
+  text-transform: uppercase;
+  font-size: 12px;
+}
+
+.job-panel pre {
+  margin: 0;
+  max-height: 250px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--code);
+  color: var(--code-ink);
+  padding: 14px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.brain-panel {
+  padding: 24px;
+}
+
+.project-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.project-head h2 {
+  font-size: 27px;
+  margin-bottom: 7px;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.tabs button {
+  background: #fff;
+  color: var(--ink);
+  border-color: var(--line);
+}
+
+.tabs button.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.markdown {
+  overflow-wrap: anywhere;
+  line-height: 1.64;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.markdown h1 {
+  font-size: 28px;
+  margin: 0 0 16px;
+}
+
+.markdown h2 {
+  font-size: 21px;
+  margin: 28px 0 10px;
+}
+
+.markdown h3 {
+  font-size: 17px;
+  margin: 22px 0 8px;
+}
+
+.markdown p {
+  margin: 9px 0;
+}
+
+.markdown ul {
+  padding-left: 22px;
+}
+
+.markdown li {
+  margin: 6px 0;
+}
+
+.markdown code {
+  border-radius: 5px;
+  background: var(--panel-2);
+  padding: 2px 5px;
+  font-size: .92em;
+}
+
+.markdown pre {
+  margin: 15px 0;
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--code);
+  color: var(--code-ink);
+  overflow: auto;
+}
+
+.markdown pre code {
+  padding: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.markdown table {
+  width: 100%;
+  display: block;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 16px 0;
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.empty-state {
+  min-height: 420px;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  text-align: center;
+  gap: 14px;
+  color: var(--muted);
+}
+
+.empty-state .brain-mark {
+  width: 96px;
+  height: 76px;
+}
+
+@media (max-width: 900px) {
+  .shell {
+    display: block;
+  }
+
+  .sidebar {
+    position: relative;
+    height: auto;
+  }
+
+  .workspace {
+    padding: 20px;
+  }
+
+  .hero,
+  .project-head,
+  .job-head {
+    display: block;
+  }
+
+  .metrics {
+    margin-top: 16px;
+    padding: 14px;
+  }
+
+  .url-row {
+    grid-template-columns: 1fr;
+  }
+}
 
 ````
 
@@ -808,12 +1387,29 @@ function crud(table, { syncFn } = {}) {
     "node": ">=18"
   },
   "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "client": "vite --host 127.0.0.1 --port 5173",
+    "server": "node server/index.js",
+    "build": "vite build",
+    "start": "node server/index.js",
     "bundle": "node scripts/brain-bundle.js",
     "import": "node scripts/brain-import.js",
     "refine": "node scripts/brain-refine.js",
     "all": "node scripts/brain-all.js",
     "idea": "node scripts/new-idea.js",
-    "ui": "node scripts/brain-ui.js"
+    "ui": "node scripts/brain-ui.js",
+    "serve": "node server/index.js"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.0.2",
+    "concurrently": "^10.0.3",
+    "vite": "^8.0.16"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7"
   }
 }
 
@@ -1107,6 +1703,7 @@ function isExcludedFile(name) {
   if (name.startsWith('.env')) return true;
   if (name.startsWith('appsettings.')) return true;
   if (name.endsWith('.context.md')) return true;
+  if (name === 'raw.context.md') return true;
   if (/\.min\.(js|css)$/.test(name)) return true;
   if (EXCLUDED_EXT.has(path.extname(name).toLowerCase())) return true;
   return false;
@@ -1142,6 +1739,7 @@ function walk(dir) {
       continue;
     }
     const rel = path.relative(ROOT, full);
+    if (rel === path.join('brain', 'index.html')) continue;
     if (size > MAX_BYTES) {
       skippedLarge.push({ rel, size });
       continue;
@@ -2418,168 +3016,393 @@ main().catch(err => {
 
 ````
 
+### server\index.js
+
+````javascript
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+const { spawn } = require('child_process');
+
+const cors = require('cors');
+const express = require('express');
+
+const { loadEnv } = require('../scripts/load-env');
+
+loadEnv();
+
+const app = express();
+const PORT = Number(process.env.PORT || 4000);
+const ROOT = path.resolve(__dirname, '..');
+const BRAIN_DIR = path.join(ROOT, 'brain');
+const PROJECTS_DIR = path.join(BRAIN_DIR, 'projects');
+const STAGING_DIR = path.join(BRAIN_DIR, '_staging');
+const RUNS_DIR = path.join(BRAIN_DIR, '_runs');
+
+const jobs = new Map();
+
+fs.mkdirSync(PROJECTS_DIR, { recursive: true });
+fs.mkdirSync(STAGING_DIR, { recursive: true });
+fs.mkdirSync(RUNS_DIR, { recursive: true });
+
+app.use(cors({ origin: true }));
+app.use(express.json({ limit: '1mb' }));
+
+function isGitHubUrl(value) {
+  return /^https:\/\/github\.com\/[^/\s]+\/[^/\s#?]+(?:\.git)?(?:[?#].*)?$/i.test(String(value || '').trim());
+}
+
+function slugFromSource(value) {
+  const cleaned = String(value)
+    .replace(/\.git$/i, '')
+    .replace(/[?#].*$/, '')
+    .replace(/^https?:\/\/github\.com\//i, '');
+  const parts = cleaned.split(/[\\/]/).filter(Boolean);
+  return (parts[parts.length - 1] || 'project')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '') || 'project';
+}
+
+function readIfExists(file) {
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+}
+
+function titleFrom(markdown, fallback) {
+  const match = markdown.match(/^#\s+(.+)$/m);
+  return match ? match[1].replace(/\s+-\s+(Overview|Architecture|Packages|Key Implementations|Decisions & Gotchas)$/i, '').trim() : fallback;
+}
+
+function summaryFrom(markdown) {
+  const line = markdown.split(/\r?\n/).map(item => item.trim()).find(item => item.startsWith('- '));
+  return line ? line.replace(/^-\s*/, '').slice(0, 180) : 'No summary yet.';
+}
+
+function readProject(slug) {
+  const projectDir = path.join(PROJECTS_DIR, slug);
+  if (!fs.existsSync(projectDir) || !fs.statSync(projectDir).isDirectory()) return null;
+
+  const files = [
+    ['00-overview', 'Overview', '00-overview.md'],
+    ['01-architecture', 'Architecture', '01-architecture.md'],
+    ['02-packages', 'Packages', '02-packages.md'],
+    ['03-implementations', 'Implementations', '03-implementations.md'],
+    ['04-gotchas', 'Gotchas', '04-gotchas.md'],
+    ['raw.context', 'Raw Context', 'raw.context.md'],
+  ];
+
+  const sections = files
+    .map(([key, label, filename]) => ({ key, label, filename, content: readIfExists(path.join(projectDir, filename)) }))
+    .filter(section => section.content);
+
+  const overview = sections.find(section => section.key === '00-overview')?.content || '';
+  return {
+    slug,
+    title: titleFrom(overview, slug),
+    summary: summaryFrom(overview),
+    sections,
+  };
+}
+
+function listProjects() {
+  return fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => readProject(entry.name))
+    .filter(Boolean)
+    .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+function runCommand(job, command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    job.logs.push(`$ ${command} ${args.join(' ')}`);
+    const child = spawn(command, args, {
+      cwd: ROOT,
+      shell: false,
+      env: process.env,
+      ...options,
+    });
+
+    child.stdout.on('data', data => {
+      for (const line of String(data).split(/\r?\n/).filter(Boolean)) job.logs.push(line);
+    });
+
+    child.stderr.on('data', data => {
+      for (const line of String(data).split(/\r?\n/).filter(Boolean)) job.logs.push(line);
+    });
+
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code === 0) resolve();
+      else reject(new Error(`${command} exited with code ${code}`));
+    });
+  });
+}
+
+function createJob(repoUrl, options) {
+  const id = crypto.randomUUID();
+  const slug = slugFromSource(repoUrl);
+  const job = {
+    id,
+    slug,
+    repoUrl,
+    status: 'queued',
+    step: 'Queued',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    logs: [],
+    project: null,
+    error: null,
+  };
+  jobs.set(id, job);
+  runImport(job, options).catch(err => {
+    job.status = 'failed';
+    job.step = 'Failed';
+    job.error = err.message;
+    job.logs.push(`ERROR: ${err.message}`);
+    job.updatedAt = new Date().toISOString();
+  });
+  return job;
+}
+
+async function runImport(job, options) {
+  const runDir = path.join(RUNS_DIR, job.id);
+  const cloneDir = path.join(runDir, job.slug);
+  const contextPath = path.join(STAGING_DIR, `${job.slug}.context.md`);
+  const maxKb = String(options.maxKb || 120);
+  const maxChars = String(options.maxChars || 30000);
+  const model = options.model || process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+  const cleanup = options.cleanup !== false;
+
+  job.status = 'running';
+  job.step = 'Preparing workspace';
+  job.updatedAt = new Date().toISOString();
+  fs.mkdirSync(runDir, { recursive: true });
+
+  try {
+    job.step = 'Cloning repository';
+    await runCommand(job, 'git', ['clone', '--depth', '1', job.repoUrl, cloneDir]);
+
+    job.step = 'Bundling code context';
+    await runCommand(job, 'node', [
+      path.join(ROOT, 'scripts', 'brain-bundle.js'),
+      cloneDir,
+      '--out',
+      contextPath,
+      '--maxkb',
+      maxKb,
+      '--source-url',
+      job.repoUrl,
+    ]);
+
+    job.step = 'Generating markdown brain files';
+    await runCommand(job, 'node', [
+      path.join(ROOT, 'scripts', 'brain-refine.js'),
+      contextPath,
+      '--out',
+      BRAIN_DIR,
+      '--model',
+      model,
+      '--maxchars',
+      maxChars,
+    ]);
+
+    job.step = 'Refreshing dashboard';
+    await runCommand(job, 'node', [path.join(ROOT, 'scripts', 'brain-ui.js'), '--out', BRAIN_DIR]);
+
+    job.status = 'complete';
+    job.step = cleanup ? 'Complete - clone deleted' : 'Complete - clone kept';
+    job.project = readProject(job.slug);
+  } finally {
+    if (cleanup && fs.existsSync(runDir)) {
+      fs.rmSync(runDir, { recursive: true, force: true });
+      job.logs.push(`Deleted temporary clone: ${runDir}`);
+    }
+    job.updatedAt = new Date().toISOString();
+  }
+}
+
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, groqConfigured: Boolean(process.env.GROQ_API_KEY) });
+});
+
+app.get('/api/projects', (req, res) => {
+  res.json({ projects: listProjects() });
+});
+
+app.get('/api/projects/:slug', (req, res) => {
+  const project = readProject(req.params.slug);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  res.json({ project });
+});
+
+app.post('/api/import', (req, res) => {
+  const repoUrl = String(req.body.repoUrl || '').trim();
+  if (!isGitHubUrl(repoUrl)) return res.status(400).json({ error: 'Paste a valid https://github.com/owner/repo URL.' });
+  if (!process.env.GROQ_API_KEY) return res.status(400).json({ error: 'GROQ_API_KEY is missing in local .env.' });
+
+  const job = createJob(repoUrl, {
+    cleanup: req.body.cleanup !== false,
+    maxKb: Number(req.body.maxKb || 120),
+    maxChars: Number(req.body.maxChars || 30000),
+    model: req.body.model,
+  });
+  res.status(202).json({ job });
+});
+
+app.get('/api/jobs/:id', (req, res) => {
+  const job = jobs.get(req.params.id);
+  if (!job) return res.status(404).json({ error: 'Job not found' });
+  res.json({ job });
+});
+
+const distDir = path.join(ROOT, 'dist');
+if (fs.existsSync(distDir)) {
+  app.use(express.static(distDir));
+  app.use((req, res, next) => {
+    if (req.path.startsWith('/api/')) return next();
+    res.sendFile(path.join(distDir, 'index.html'));
+  });
+}
+
+app.listen(PORT, () => {
+  console.log(`Code Brain API: http://127.0.0.1:${PORT}`);
+});
+
+````
+
 ### SETUP.md
 
 ````markdown
-# Code Brain - Setup & Usage
+# Code Brain - React + Express App
 
-A personal knowledge base built from your own shipped repos. Give it a GitHub repo or local folder, and it creates markdown files you can browse, upload to Claude Project knowledge, or reuse while planning new work.
+Code Brain turns GitHub repositories into a local markdown knowledge base.
 
-## What You Need
+Paste a GitHub URL, let the backend clone and scan it, generate project markdown with Groq, then browse the result in the React brain dashboard.
 
-- Node.js 18 or newer.
-- Git installed and available in your terminal.
-- A Groq API key for the AI refine step: https://console.groq.com
-- No npm packages to install.
+## Current Product Workflow
 
-## Step 0 - Set Your Key
+1. Open the React app.
+2. Paste a GitHub repo URL.
+3. The Express backend creates an autonomous import job.
+4. The job clones the repo into `brain/_runs/<job>/`.
+5. The existing bundler scans source files and skips secrets, binaries, build folders, and huge files.
+6. Groq refines the raw context into markdown:
+   - `00-overview.md`
+   - `01-architecture.md`
+   - `02-packages.md`
+   - `03-implementations.md`
+   - `04-gotchas.md`
+   - `raw.context.md`
+7. The dashboard refreshes.
+8. The temporary cloned repo is deleted automatically by default.
 
-PowerShell:
+## Run Locally
+
+Create local `.env`:
 
 ```powershell
-$env:GROQ_API_KEY="your_key_here"
+GROQ_API_KEY=your_groq_key_here
+GROQ_MODEL=llama-3.3-70b-versatile
 ```
 
-Mac/Linux:
+Install dependencies:
 
 ```bash
-export GROQ_API_KEY=your_key_here
+npm install
 ```
 
-Use `--bundle-only` when you want to create raw context without an API key.
-
-## Best Flow - Import One GitHub Repo
+Run app:
 
 ```bash
-npm run import -- https://github.com/owner/repo
+npm run dev
 ```
 
-What happens:
-
-- The repo is cloned or updated under `brain/_repos/`.
-- A raw context file is created under `brain/_staging/`.
-- Groq turns that context into five markdown files under `brain/projects/<repo>/`.
-- `brain/README.md` and `brain/index.html` are regenerated.
-
-Useful options:
-
-```bash
-npm run import -- https://github.com/owner/repo --fresh
-npm run import -- https://github.com/owner/repo --bundle-only
-npm run import -- https://github.com/owner/repo --model openai/gpt-oss-120b
-```
-
-## Browse the Brain
-
-```bash
-npm run ui
-```
-
-Then open:
+Open:
 
 ```text
-brain/index.html
+http://127.0.0.1:5173
 ```
 
-The dashboard gives you:
-
-- Project cards with summaries.
-- Search across project names and markdown.
-- Tabs for overview, architecture, packages, implementations, gotchas, and raw context.
-- A quick checklist for which files to upload to Claude Project knowledge.
-
-## Build From Local Repos
-
-Bundle one local repo:
-
-```bash
-npm run bundle -- /path/to/one-repo
-```
-
-Refine an existing context file:
-
-```bash
-npm run refine -- /path/to/one-repo/one-repo.context.md
-```
-
-Build every repo inside a parent folder:
-
-```bash
-npm run all -- /path/to/all-my-repos
-```
-
-Skip the AI step:
-
-```bash
-npm run all -- /path/to/all-my-repos --bundle-only
-```
-
-## Generated Files
-
-Each refined project gets:
-
-- `00-overview.md` - purpose, stack, status, useful entry points.
-- `01-architecture.md` - folders, layers, request/data flow.
-- `02-packages.md` - significant dependencies and why they matter.
-- `03-implementations.md` - working patterns with real code snippets.
-- `04-gotchas.md` - decisions, pitfalls, and deployment notes.
-- `raw.context.md` - full bundled source context for deep follow-up.
-
-## Use With Claude
-
-1. Create a Claude Project called `My Code Brain`.
-2. Upload `00-overview.md` through `04-gotchas.md` from each project folder.
-3. Keep `raw.context.md` local unless you need deep source detail.
-
-Good questions:
-
-- "Which project used Supabase Realtime and how?"
-- "Show the exact auth pattern I used before."
-- "Compare the backend architecture in these two projects."
-- "What code can I reuse for this new idea?"
-
-## Capture New Ideas
-
-```bash
-npm run idea -- "AI resume tailor" --desc "tailors my resume per job description"
-```
-
-This creates:
+API runs at:
 
 ```text
-brain/ideas/YYYY-MM-DD-ai-resume-tailor.md
+http://127.0.0.1:4000
 ```
 
-## Write Reusable Patterns
+## Important Folders
 
-When you solve the same thing twice, copy:
+- `client/` - React/Vite frontend.
+- `server/` - Express backend and import job API.
+- `scripts/brain-bundle.js` - repo scanner/context bundler.
+- `scripts/brain-refine.js` - Groq markdown generator.
+- `brain/projects/` - generated project knowledge.
+- `brain/_runs/` - temporary clones, ignored and deleted after import.
+- `brain/_staging/` - generated raw context staging, ignored.
 
-```text
-brain/patterns/_TEMPLATE.md
+## API
+
+- `GET /api/health`
+- `GET /api/projects`
+- `GET /api/projects/:slug`
+- `POST /api/import`
+- `GET /api/jobs/:id`
+
+`POST /api/import` body:
+
+```json
+{
+  "repoUrl": "https://github.com/owner/repo",
+  "cleanup": true,
+  "maxChars": 30000,
+  "maxKb": 120
+}
 ```
 
-Examples:
+## Optional Supabase Later
 
-- `auth-jwt-httponly.md`
-- `nl2sql-groq.md`
-- `supabase-realtime.md`
+Right now the app uses local markdown as the source of truth.
 
-## Troubleshooting
+Supabase can be added later for:
 
-- `Missing GROQ_API_KEY`: set the key or pass `--bundle-only`.
-- `context was truncated`: raise `--maxchars` or split a huge repo.
-- `No project folders found`: pass a parent folder that contains repo folders.
-- `git clone` fails: check the repo URL and whether you have access.
-- A file is too big and got skipped: check the `Skipped large files` section in `raw.context.md`.
+- saved import history
+- project metadata
+- job history
+- embeddings/vector search
+- multi-device sync
 
-## When to Upgrade to Real RAG
+Use `.env.example` placeholders only in git. Keep real Supabase keys local and rotate any key that was pasted into chat.
 
-The markdown brain is enough until:
+## Build
 
-- Claude Project uploads become too large.
-- Answers get fuzzy because too many projects are loaded.
-- You want app/API retrieval instead of manual upload.
+```bash
+npm run build
+npm start
+```
 
-Then move to: chunk markdown, embed chunks, store in Supabase pgvector, and query through a small Express endpoint.
+In production mode, Express serves the built React app from `dist/`.
+
+````
+
+### vite.config.js
+
+````javascript
+const { defineConfig } = require('vite');
+const react = require('@vitejs/plugin-react');
+
+module.exports = defineConfig({
+  root: 'client',
+  plugins: [react()],
+  server: {
+    host: '127.0.0.1',
+    port: 5173,
+    proxy: {
+      '/api': 'http://127.0.0.1:4000',
+    },
+  },
+  build: {
+    outDir: '../dist',
+    emptyOutDir: true,
+  },
+});
 
 ````

@@ -5,7 +5,6 @@
 | Project | Summary |
 | --- | --- |
 | [codebrain](./projects/codebrain/00-overview.md) | Personal code-memory tool that turns repos into structured markdown knowledge. |
-| [interviewmentor](./projects/interviewmentor/00-overview.md) | Personal interview-prep coach named Mentor. |
 
 ## Folders
 - `projects/` - one folder per project (00 overview to 04 gotchas + raw context)

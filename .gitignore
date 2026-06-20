@@ -1,6 +1,8 @@
 # staging for batch runs (context files are regenerated)
 brain/_staging/
 brain/_repos/
+brain/_runs/
+dist/
 
 # secrets
 .env
@@ -11,6 +13,8 @@ node_modules/
 
 # local server logs
 brain-server*.log
+api*.log
+client*.log
 
 # OS
 .DS_Store

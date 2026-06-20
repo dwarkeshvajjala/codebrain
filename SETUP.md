@@ -1,160 +1,107 @@
-# Code Brain - Setup & Usage
+# Code Brain - React + Express App
 
-A personal knowledge base built from your own shipped repos. Give it a GitHub repo or local folder, and it creates markdown files you can browse, upload to Claude Project knowledge, or reuse while planning new work.
+Code Brain turns GitHub repositories into a local markdown knowledge base.
 
-## What You Need
+Paste a GitHub URL, let the backend clone and scan it, generate project markdown with Groq, then browse the result in the React brain dashboard.
 
-- Node.js 18 or newer.
-- Git installed and available in your terminal.
-- A Groq API key for the AI refine step: https://console.groq.com
-- No npm packages to install.
+## Current Product Workflow
 
-## Step 0 - Set Your Key
+1. Open the React app.
+2. Paste a GitHub repo URL.
+3. The Express backend creates an autonomous import job.
+4. The job clones the repo into `brain/_runs/<job>/`.
+5. The existing bundler scans source files and skips secrets, binaries, build folders, and huge files.
+6. Groq refines the raw context into markdown:
+   - `00-overview.md`
+   - `01-architecture.md`
+   - `02-packages.md`
+   - `03-implementations.md`
+   - `04-gotchas.md`
+   - `raw.context.md`
+7. The dashboard refreshes.
+8. The temporary cloned repo is deleted automatically by default.
 
-PowerShell:
+## Run Locally
+
+Create local `.env`:
 
 ```powershell
-$env:GROQ_API_KEY="your_key_here"
+GROQ_API_KEY=your_groq_key_here
+GROQ_MODEL=llama-3.3-70b-versatile
 ```
 
-Mac/Linux:
+Install dependencies:
 
 ```bash
-export GROQ_API_KEY=your_key_here
+npm install
 ```
 
-Use `--bundle-only` when you want to create raw context without an API key.
-
-## Best Flow - Import One GitHub Repo
+Run app:
 
 ```bash
-npm run import -- https://github.com/owner/repo
+npm run dev
 ```
 
-What happens:
-
-- The repo is cloned or updated under `brain/_repos/`.
-- A raw context file is created under `brain/_staging/`.
-- Groq turns that context into five markdown files under `brain/projects/<repo>/`.
-- `brain/README.md` and `brain/index.html` are regenerated.
-
-Useful options:
-
-```bash
-npm run import -- https://github.com/owner/repo --fresh
-npm run import -- https://github.com/owner/repo --bundle-only
-npm run import -- https://github.com/owner/repo --model openai/gpt-oss-120b
-```
-
-## Browse the Brain
-
-```bash
-npm run ui
-```
-
-Then open:
+Open:
 
 ```text
-brain/index.html
+http://127.0.0.1:5173
 ```
 
-The dashboard gives you:
-
-- Project cards with summaries.
-- Search across project names and markdown.
-- Tabs for overview, architecture, packages, implementations, gotchas, and raw context.
-- A quick checklist for which files to upload to Claude Project knowledge.
-
-## Build From Local Repos
-
-Bundle one local repo:
-
-```bash
-npm run bundle -- /path/to/one-repo
-```
-
-Refine an existing context file:
-
-```bash
-npm run refine -- /path/to/one-repo/one-repo.context.md
-```
-
-Build every repo inside a parent folder:
-
-```bash
-npm run all -- /path/to/all-my-repos
-```
-
-Skip the AI step:
-
-```bash
-npm run all -- /path/to/all-my-repos --bundle-only
-```
-
-## Generated Files
-
-Each refined project gets:
-
-- `00-overview.md` - purpose, stack, status, useful entry points.
-- `01-architecture.md` - folders, layers, request/data flow.
-- `02-packages.md` - significant dependencies and why they matter.
-- `03-implementations.md` - working patterns with real code snippets.
-- `04-gotchas.md` - decisions, pitfalls, and deployment notes.
-- `raw.context.md` - full bundled source context for deep follow-up.
-
-## Use With Claude
-
-1. Create a Claude Project called `My Code Brain`.
-2. Upload `00-overview.md` through `04-gotchas.md` from each project folder.
-3. Keep `raw.context.md` local unless you need deep source detail.
-
-Good questions:
-
-- "Which project used Supabase Realtime and how?"
-- "Show the exact auth pattern I used before."
-- "Compare the backend architecture in these two projects."
-- "What code can I reuse for this new idea?"
-
-## Capture New Ideas
-
-```bash
-npm run idea -- "AI resume tailor" --desc "tailors my resume per job description"
-```
-
-This creates:
+API runs at:
 
 ```text
-brain/ideas/YYYY-MM-DD-ai-resume-tailor.md
+http://127.0.0.1:4000
 ```
 
-## Write Reusable Patterns
+## Important Folders
 
-When you solve the same thing twice, copy:
+- `client/` - React/Vite frontend.
+- `server/` - Express backend and import job API.
+- `scripts/brain-bundle.js` - repo scanner/context bundler.
+- `scripts/brain-refine.js` - Groq markdown generator.
+- `brain/projects/` - generated project knowledge.
+- `brain/_runs/` - temporary clones, ignored and deleted after import.
+- `brain/_staging/` - generated raw context staging, ignored.
 
-```text
-brain/patterns/_TEMPLATE.md
+## API
+
+- `GET /api/health`
+- `GET /api/projects`
+- `GET /api/projects/:slug`
+- `POST /api/import`
+- `GET /api/jobs/:id`
+
+`POST /api/import` body:
+
+```json
+{
+  "repoUrl": "https://github.com/owner/repo",
+  "cleanup": true,
+  "maxChars": 30000,
+  "maxKb": 120
+}
 ```
 
-Examples:
+## Optional Supabase Later
 
-- `auth-jwt-httponly.md`
-- `nl2sql-groq.md`
-- `supabase-realtime.md`
+Right now the app uses local markdown as the source of truth.
 
-## Troubleshooting
+Supabase can be added later for:
 
-- `Missing GROQ_API_KEY`: set the key or pass `--bundle-only`.
-- `context was truncated`: raise `--maxchars` or split a huge repo.
-- `No project folders found`: pass a parent folder that contains repo folders.
-- `git clone` fails: check the repo URL and whether you have access.
-- A file is too big and got skipped: check the `Skipped large files` section in `raw.context.md`.
+- saved import history
+- project metadata
+- job history
+- embeddings/vector search
+- multi-device sync
 
-## When to Upgrade to Real RAG
+Use `.env.example` placeholders only in git. Keep real Supabase keys local and rotate any key that was pasted into chat.
 
-The markdown brain is enough until:
+## Build
 
-- Claude Project uploads become too large.
-- Answers get fuzzy because too many projects are loaded.
-- You want app/API retrieval instead of manual upload.
+```bash
+npm run build
+npm start
+```
 
-Then move to: chunk markdown, embed chunks, store in Supabase pgvector, and query through a small Express endpoint.
+In production mode, Express serves the built React app from `dist/`.

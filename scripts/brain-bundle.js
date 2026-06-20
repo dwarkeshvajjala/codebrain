@@ -123,6 +123,7 @@ function isExcludedFile(name) {
   if (name.startsWith('.env')) return true;
   if (name.startsWith('appsettings.')) return true;
   if (name.endsWith('.context.md')) return true;
+  if (name === 'raw.context.md') return true;
   if (/\.min\.(js|css)$/.test(name)) return true;
   if (EXCLUDED_EXT.has(path.extname(name).toLowerCase())) return true;
   return false;
@@ -158,6 +159,7 @@ function walk(dir) {
       continue;
     }
     const rel = path.relative(ROOT, full);
+    if (rel === path.join('brain', 'index.html')) continue;
     if (size > MAX_BYTES) {
       skippedLarge.push({ rel, size });
       continue;
