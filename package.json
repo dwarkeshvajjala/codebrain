@@ -13,6 +13,7 @@
     "refine": "node scripts/brain-refine.js",
     "all": "node scripts/brain-all.js",
     "idea": "node scripts/new-idea.js",
-    "ui": "node scripts/brain-ui.js"
+    "ui": "node scripts/brain-ui.js",
+    "serve": "node scripts/serve-brain.js"
   }
 }

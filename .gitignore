@@ -9,6 +9,9 @@ brain/_repos/
 # node
 node_modules/
 
+# local server logs
+brain-server*.log
+
 # OS
 .DS_Store
 Thumbs.db
