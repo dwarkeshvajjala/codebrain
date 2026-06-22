@@ -31,6 +31,10 @@ function isGitHubUrl(value) {
   return /^https:\/\/github\.com\/[^/\s]+\/[^/\s#?]+(?:\.git)?(?:[?#].*)?$/i.test(String(value || '').trim());
 }
 
+function isSafeSlug(value) {
+  return /^[a-z0-9][a-z0-9-]*$/.test(String(value || ''));
+}
+
 function slugFromSource(value) {
   const cleaned = String(value)
     .replace(/\.git$/i, '')
@@ -43,8 +47,26 @@ function slugFromSource(value) {
     .replace(/^-|-$/g, '') || 'project';
 }
 
+function parseContextMeta(context) {
+  const meta = {};
+  for (const line of String(context || '').split(/\r?\n/).slice(0, 24)) {
+    const match = line.match(/^-\s*([^:]+):\s*(.*)$/);
+    if (match) meta[match[1].trim().toLowerCase()] = match[2].trim();
+  }
+  const header = String(context || '').match(/^#\s*Project Context:\s*(.+)$/m);
+  if (header) meta.project = header[1].trim();
+  return meta;
+}
+
 function readIfExists(file) {
   return fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '';
+}
+
+function projectPathFor(slug) {
+  if (!isSafeSlug(slug)) return null;
+  const projectDir = path.resolve(PROJECTS_DIR, slug);
+  const projectsRoot = path.resolve(PROJECTS_DIR) + path.sep;
+  return projectDir.startsWith(projectsRoot) ? projectDir : null;
 }
 
 function titleFrom(markdown, fallback) {
@@ -58,7 +80,9 @@ function summaryFrom(markdown) {
 }
 
 function readProject(slug) {
-  const projectDir = path.join(PROJECTS_DIR, slug);
+  if (!isSafeSlug(slug)) return null;
+  const projectDir = projectPathFor(slug);
+  if (!projectDir) return null;
   if (!fs.existsSync(projectDir) || !fs.statSync(projectDir).isDirectory()) return null;
 
   const files = [
@@ -81,6 +105,56 @@ function readProject(slug) {
     summary: summaryFrom(overview),
     sections,
   };
+}
+
+function writeBundleOnlyProject(slug, contextPath, sourceUrl) {
+  const context = fs.readFileSync(contextPath, 'utf8');
+  const meta = parseContextMeta(context);
+  const projectDir = path.join(PROJECTS_DIR, slug);
+  fs.mkdirSync(projectDir, { recursive: true });
+  fs.copyFileSync(contextPath, path.join(projectDir, 'raw.context.md'));
+
+  const overviewPath = path.join(projectDir, '00-overview.md');
+  const existingOverview = readIfExists(overviewPath);
+  if (existingOverview && !existingOverview.includes('Bundle-only import')) return;
+
+  const projectName = meta.project || slug;
+  fs.writeFileSync(overviewPath, `# ${projectName} - Overview
+
+- Bundle-only import created because Groq refine is not configured.
+- Source path: ${meta['source path'] || 'TODO'}
+- Git URL: ${sourceUrl || meta['git url'] || 'TODO'}
+- Files included: ${meta['files included'] || 'TODO'}
+- Files skipped: ${meta['files skipped (> 120 kb)'] || meta['files skipped (> 250 kb)'] || 'TODO'}
+
+## Next Step
+
+- Set \`GROQ_API_KEY\` in local \`.env\`, restart the server, and import again to generate architecture, packages, implementations, and gotchas.
+- Until then, open \`raw.context.md\` for the bundled source context.
+`);
+}
+
+function runUtility(command, args) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      cwd: ROOT,
+      shell: false,
+      env: process.env,
+    });
+    let output = '';
+
+    child.stdout.on('data', data => {
+      output += String(data);
+    });
+    child.stderr.on('data', data => {
+      output += String(data);
+    });
+    child.on('error', reject);
+    child.on('close', code => {
+      if (code === 0) resolve(output);
+      else reject(new Error(output.trim() || `${command} exited with code ${code}`));
+    });
+  });
 }
 
 function listProjects() {
@@ -173,17 +247,23 @@ async function runImport(job, options) {
       job.repoUrl,
     ]);
 
-    job.step = 'Generating markdown brain files';
-    await runCommand(job, 'node', [
-      path.join(ROOT, 'scripts', 'brain-refine.js'),
-      contextPath,
-      '--out',
-      BRAIN_DIR,
-      '--model',
-      model,
-      '--maxchars',
-      maxChars,
-    ]);
+    if (process.env.GROQ_API_KEY) {
+      job.step = 'Generating markdown brain files';
+      await runCommand(job, 'node', [
+        path.join(ROOT, 'scripts', 'brain-refine.js'),
+        contextPath,
+        '--out',
+        BRAIN_DIR,
+        '--model',
+        model,
+        '--maxchars',
+        maxChars,
+      ]);
+    } else {
+      job.step = 'Creating raw bundle project';
+      job.logs.push('GROQ_API_KEY is missing. Skipping AI refine and saving raw context only.');
+      writeBundleOnlyProject(job.slug, contextPath, job.repoUrl);
+    }
 
     job.step = 'Refreshing dashboard';
     await runCommand(job, 'node', [path.join(ROOT, 'scripts', 'brain-ui.js'), '--out', BRAIN_DIR]);
@@ -209,6 +289,7 @@ app.get('/api/projects', (req, res) => {
 });
 
 app.get('/api/projects/:slug', (req, res) => {
+  if (!isSafeSlug(req.params.slug)) return res.status(400).json({ error: 'Invalid project slug' });
   const project = readProject(req.params.slug);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   res.json({ project });
@@ -217,7 +298,6 @@ app.get('/api/projects/:slug', (req, res) => {
 app.post('/api/import', (req, res) => {
   const repoUrl = String(req.body.repoUrl || '').trim();
   if (!isGitHubUrl(repoUrl)) return res.status(400).json({ error: 'Paste a valid https://github.com/owner/repo URL.' });
-  if (!process.env.GROQ_API_KEY) return res.status(400).json({ error: 'GROQ_API_KEY is missing in local .env.' });
 
   const job = createJob(repoUrl, {
     cleanup: req.body.cleanup !== false,
@@ -226,6 +306,24 @@ app.post('/api/import', (req, res) => {
     model: req.body.model,
   });
   res.status(202).json({ job });
+});
+
+app.delete('/api/projects/:slug', async (req, res) => {
+  const slug = req.params.slug;
+  const projectDir = projectPathFor(slug);
+  if (!projectDir) return res.status(400).json({ error: 'Invalid project slug' });
+  if (!fs.existsSync(projectDir) || !fs.statSync(projectDir).isDirectory()) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  fs.rmSync(projectDir, { recursive: true, force: true });
+  try {
+    await runUtility('node', [path.join(ROOT, 'scripts', 'brain-ui.js'), '--out', BRAIN_DIR]);
+  } catch (err) {
+    return res.status(500).json({ error: `Project deleted, but dashboard refresh failed: ${err.message}` });
+  }
+
+  res.json({ deleted: slug, projects: listProjects() });
 });
 
 app.get('/api/jobs/:id', (req, res) => {

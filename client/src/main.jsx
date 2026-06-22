@@ -126,6 +126,11 @@ function markdownToHtml(markdown = '') {
   return html.join('\n');
 }
 
+function projectMode(project) {
+  const keys = new Set((project?.sections || []).map(section => section.key));
+  return keys.has('01-architecture') ? 'AI notes' : 'Raw bundle';
+}
+
 function BrainMark() {
   return (
     <div className="brain-mark" aria-hidden="true">
@@ -150,12 +155,15 @@ function App() {
   const [job, setJob] = useState(null);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
+  const [deleteSlug, setDeleteSlug] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   async function loadProjects(nextSlug) {
     const data = await api('/api/projects');
     setProjects(data.projects);
-    if (nextSlug) setSelectedSlug(nextSlug);
-    else if (!selectedSlug && data.projects[0]) setSelectedSlug(data.projects[0].slug);
+    const targetSlug = nextSlug || selectedSlug;
+    if (targetSlug && data.projects.some(project => project.slug === targetSlug)) setSelectedSlug(targetSlug);
+    else setSelectedSlug(data.projects[0]?.slug || '');
   }
 
   useEffect(() => {
@@ -212,6 +220,24 @@ function App() {
   function selectProject(slug) {
     setSelectedSlug(slug);
     setSelectedSection('00-overview');
+    setDeleteSlug('');
+  }
+
+  async function deleteProject(slug) {
+    if (!slug) return;
+    setError('');
+    setDeleting(true);
+    try {
+      const data = await api(`/api/projects/${slug}`, { method: 'DELETE' });
+      setProjects(data.projects);
+      setSelectedSlug(data.projects[0]?.slug || '');
+      setSelectedSection('00-overview');
+      setDeleteSlug('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   return (
@@ -241,13 +267,16 @@ function App() {
             Delete cloned repo automatically after markdown is generated
           </label>
           <p className="hint">
-            The backend clones, bundles, refines with Groq, writes markdown, refreshes the brain, then removes the temp clone.
+            The backend clones, bundles, writes markdown, refreshes the brain, then removes the temp clone. If Groq is configured it also generates architecture, package, implementation, and gotcha notes.
           </p>
         </form>
 
         <div className="status-strip">
-          <span className={health?.groqConfigured ? 'dot ok' : 'dot warn'} />
-          {health?.groqConfigured ? 'Groq key loaded' : 'Groq key missing'}
+          <span className={`status-pill ${health?.groqConfigured ? 'ready' : 'warn'}`}>
+            <span className={health?.groqConfigured ? 'dot ok' : 'dot warn'} />
+            {health?.groqConfigured ? 'Groq ready' : 'Raw mode'}
+          </span>
+          <span className="status-pill">{projects.length} project{projects.length === 1 ? '' : 's'}</span>
         </div>
 
         <input
@@ -264,7 +293,10 @@ function App() {
               className={`project-btn ${project.slug === selectedProject?.slug ? 'active' : ''}`}
               onClick={() => selectProject(project.slug)}
             >
-              <strong>{project.title}</strong>
+              <strong>
+                {project.title}
+                <span className="mode-chip">{projectMode(project)}</span>
+              </strong>
               <span>{project.summary}</span>
             </button>
           ))}
@@ -278,7 +310,7 @@ function App() {
             <p className="eyebrow">Autonomous markdown generation</p>
             <h2>Paste a repo. Grow the brain.</h2>
             <p>
-              Code Brain turns repos into overview, architecture, package, implementation, gotcha, and raw-context markdown files.
+              Code Brain turns repos into raw context first, then adds overview, architecture, package, implementation, and gotcha notes when Groq is available.
             </p>
           </div>
           <div className="metrics">
@@ -310,6 +342,23 @@ function App() {
                   <p className="eyebrow">Brain project</p>
                   <h2>{selectedProject.title}</h2>
                   <p>{selectedProject.summary}</p>
+                </div>
+                <div className="project-actions">
+                  <span className="project-chip">{projectMode(selectedProject)}</span>
+                  <span className="project-chip">{sections.length} file{sections.length === 1 ? '' : 's'}</span>
+                  {deleteSlug === selectedProject.slug ? (
+                    <div className="delete-confirm">
+                      <span>Delete this project?</span>
+                      <button type="button" className="ghost-btn" onClick={() => setDeleteSlug('')} disabled={deleting}>Cancel</button>
+                      <button type="button" className="danger-btn" onClick={() => deleteProject(selectedProject.slug)} disabled={deleting}>
+                        {deleting ? 'Deleting...' : 'Delete'}
+                      </button>
+                    </div>
+                  ) : (
+                    <button type="button" className="delete-btn" onClick={() => setDeleteSlug(selectedProject.slug)}>
+                      Delete project
+                    </button>
+                  )}
                 </div>
               </div>
 

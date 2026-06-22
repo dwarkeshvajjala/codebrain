@@ -2,7 +2,7 @@
 
 Code Brain turns GitHub repositories into a local markdown knowledge base.
 
-Paste a GitHub URL, let the backend clone and scan it, generate project markdown with Groq, then browse the result in the React brain dashboard.
+Paste a GitHub URL, let the backend clone and scan it, then browse the result in the React brain dashboard. With `GROQ_API_KEY` configured, imports also generate structured project markdown with Groq.
 
 ## Current Product Workflow
 
@@ -11,7 +11,7 @@ Paste a GitHub URL, let the backend clone and scan it, generate project markdown
 3. The Express backend creates an autonomous import job.
 4. The job clones the repo into `brain/_runs/<job>/`.
 5. The existing bundler scans source files and skips secrets, binaries, build folders, and huge files.
-6. Groq refines the raw context into markdown:
+6. If `GROQ_API_KEY` is configured, Groq refines the raw context into markdown:
    - `00-overview.md`
    - `01-architecture.md`
    - `02-packages.md`
@@ -23,12 +23,14 @@ Paste a GitHub URL, let the backend clone and scan it, generate project markdown
 
 ## Run Locally
 
-Create local `.env`:
+Create local `.env` for AI refinement:
 
 ```powershell
 GROQ_API_KEY=your_groq_key_here
 GROQ_MODEL=llama-3.3-70b-versatile
 ```
+
+Without `GROQ_API_KEY`, imports still work in raw-context mode.
 
 Install dependencies:
 
@@ -70,6 +72,7 @@ http://127.0.0.1:4000
 - `GET /api/projects`
 - `GET /api/projects/:slug`
 - `POST /api/import`
+- `DELETE /api/projects/:slug`
 - `GET /api/jobs/:id`
 
 `POST /api/import` body:
