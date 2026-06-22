@@ -26,7 +26,7 @@ Options:
   --bundle-only   Build raw context without the Groq refine step.
   --model name    Groq model to use for refinement.
   --maxkb N       Skip source files larger than N KB. Default: 250.
-  --maxchars N    Limit context sent to the model. Default: 120000.
+  --maxchars N    Approximate max chars per Groq call; larger context is chunked. Default: 30000.
   --fresh         Delete the cached clone before importing.
   -h, --help      Show this help.`;
 
@@ -35,7 +35,7 @@ let source = null;
 let brainDir = path.resolve('./brain');
 let model = 'llama-3.3-70b-versatile';
 let maxKb = 250;
-let maxChars = 120000;
+let maxChars = 30000;
 let bundleOnly = false;
 let fresh = false;
 

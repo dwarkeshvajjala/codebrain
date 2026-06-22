@@ -10,8 +10,8 @@ Paste a GitHub URL, let the backend clone and scan it, then browse the result in
 2. Paste a GitHub repo URL.
 3. The Express backend creates an autonomous import job.
 4. The job clones the repo into `brain/_runs/<job>/`.
-5. The existing bundler scans source files and skips secrets, binaries, build folders, and huge files.
-6. If `GROQ_API_KEY` is configured, Groq refines the raw context into markdown:
+5. The bundler scans source files, skips secrets/binaries/build folders/huge files, and summarizes large data or notebook assets so code context keeps priority.
+6. If `GROQ_API_KEY` is configured, Groq refines the raw context into markdown. Large contexts are split into chunks first, then merged so later files are not lost:
    - `00-overview.md`
    - `01-architecture.md`
    - `02-packages.md`
@@ -85,6 +85,8 @@ http://127.0.0.1:4000
   "maxKb": 120
 }
 ```
+
+`maxChars` is the approximate per-call chunk size for Groq refinement. It no longer truncates the project context.
 
 ## Optional Supabase Later
 

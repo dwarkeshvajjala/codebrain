@@ -267,7 +267,7 @@ function App() {
             Delete cloned repo automatically after markdown is generated
           </label>
           <p className="hint">
-            The backend clones, bundles, writes markdown, refreshes the brain, then removes the temp clone. If Groq is configured it also generates architecture, package, implementation, and gotcha notes.
+            The backend clones, bundles, summarizes bulky data assets, writes markdown, refreshes the brain, then removes the temp clone. If Groq is configured, large repos are chunked before AI notes are merged.
           </p>
         </form>
 

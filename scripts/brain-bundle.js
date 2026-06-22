@@ -118,6 +118,10 @@ const LANG = {
   '.csproj': 'xml', '.config': 'xml', '.xml': 'xml'
 };
 
+const SUMMARY_EXT = new Set(['.ipynb', '.npz', '.tiktoken']);
+const LARGE_DATA_EXT = new Set(['.json', '.txt', '.csv', '.tsv']);
+const LARGE_DATA_BYTES = 24 * 1024;
+
 function isExcludedFile(name) {
   if (EXCLUDED_FILES.has(name)) return true;
   if (name.startsWith('.env')) return true;
@@ -127,6 +131,84 @@ function isExcludedFile(name) {
   if (/\.min\.(js|css)$/.test(name)) return true;
   if (EXCLUDED_EXT.has(path.extname(name).toLowerCase())) return true;
   return false;
+}
+
+function shouldSummarizeFile(file) {
+  const ext = path.extname(file.rel).toLowerCase();
+  if (SUMMARY_EXT.has(ext)) return true;
+  return LARGE_DATA_EXT.has(ext) && file.size > LARGE_DATA_BYTES;
+}
+
+function summarizeJsonValue(value, depth = 0) {
+  if (depth > 2) return typeof value;
+  if (Array.isArray(value)) {
+    const samples = value.slice(0, 3).map(item => summarizeJsonValue(item, depth + 1));
+    return `array(${value.length})${samples.length ? ` sample: ${samples.join('; ')}` : ''}`;
+  }
+  if (value && typeof value === 'object') {
+    const keys = Object.keys(value);
+    const sample = keys.slice(0, 12).map(key => `${key}: ${summarizeJsonValue(value[key], depth + 1)}`);
+    return `object(${keys.length} keys)${sample.length ? ` sample keys: ${sample.join('; ')}` : ''}`;
+  }
+  if (typeof value === 'string') return value.length > 80 ? `string(${value.length} chars)` : JSON.stringify(value);
+  return String(value);
+}
+
+function summarizeNotebook(json) {
+  const cells = Array.isArray(json.cells) ? json.cells : [];
+  const lines = [
+    `Notebook cells: ${cells.length}`,
+    `Kernel: ${json.metadata?.kernelspec?.display_name || json.metadata?.kernelspec?.name || 'unknown'}`,
+    '',
+    'Cell outline:',
+  ];
+
+  for (const [index, cell] of cells.slice(0, 18).entries()) {
+    const source = Array.isArray(cell.source) ? cell.source.join('') : String(cell.source || '');
+    const firstLine = source.split(/\r?\n/).map(line => line.trim()).find(Boolean) || '(empty)';
+    lines.push(`- ${index + 1}. ${cell.cell_type || 'cell'}: ${firstLine.slice(0, 160)}`);
+  }
+  if (cells.length > 18) lines.push(`- ... ${cells.length - 18} more cells omitted from bundle summary.`);
+  return lines.join('\n');
+}
+
+function summarizeTextData(text) {
+  const lines = text.split(/\r?\n/);
+  return [
+    `Lines: ${lines.length}`,
+    `Characters: ${text.length}`,
+    '',
+    'First non-empty lines:',
+    ...lines.map(line => line.trim()).filter(Boolean).slice(0, 20).map(line => `- ${line.slice(0, 180)}`),
+  ].join('\n');
+}
+
+function summaryForFile(file) {
+  if (!shouldSummarizeFile(file)) return '';
+  const ext = path.extname(file.rel).toLowerCase();
+  const header = [
+    '[SUMMARIZED FILE]',
+    `Path: ${file.rel}`,
+    `Size: ${Math.round(file.size / 1024)} KB`,
+    `Reason: large data/notebook/asset file summarized to preserve AI context budget for source code.`,
+    '',
+  ];
+
+  try {
+    const text = fs.readFileSync(file.full, 'utf8');
+    if (ext === '.json') {
+      return header.concat(`JSON shape: ${summarizeJsonValue(JSON.parse(text))}`).join('\n');
+    }
+    if (ext === '.ipynb') {
+      return header.concat(summarizeNotebook(JSON.parse(text))).join('\n');
+    }
+    if (ext === '.npz') {
+      return header.concat('Binary NumPy archive. Contents are not expanded in the text bundle.').join('\n');
+    }
+    return header.concat(summarizeTextData(text)).join('\n');
+  } catch (err) {
+    return header.concat(`Could not summarize safely: ${err.message}`).join('\n');
+  }
 }
 
 // ---------- walk ----------
@@ -238,6 +320,7 @@ function extStats() {
 // ---------- run ----------
 walk(ROOT);
 collected.sort((a, b) => a.rel.localeCompare(b.rel));
+const summarizedFiles = collected.filter(shouldSummarizeFile);
 
 fs.mkdirSync(path.dirname(outPath), { recursive: true });
 const stream = fs.createWriteStream(outPath, { flags: 'w' });
@@ -248,6 +331,7 @@ stream.write(`- Generated: ${new Date().toISOString()}\n`);
 stream.write(`- Source path: ${ROOT}\n`);
 stream.write(`- Git URL: ${detectGitUrl()}\n`);
 stream.write(`- Files included: ${collected.length}\n`);
+stream.write(`- Files summarized (large data/notebooks): ${summarizedFiles.length}\n`);
 stream.write(`- Files skipped (> ${maxKb} KB): ${skippedLarge.length}\n\n`);
 
 stream.write(`## Detected stack & packages\n\n${detectStack()}\n\n`);
@@ -260,15 +344,26 @@ if (skippedLarge.length) {
   stream.write('\n');
 }
 
+if (summarizedFiles.length) {
+  stream.write(`## Summarized data/notebook files\n\n`);
+  for (const s of summarizedFiles) stream.write(`- ${s.rel} (${Math.round(s.size / 1024)} KB)\n`);
+  stream.write('\n');
+}
+
 stream.write(`## Source files\n`);
 for (const f of collected) {
-  const lang = LANG[path.extname(f.rel).toLowerCase()] || '';
+  const summary = summaryForFile(f);
+  const lang = summary ? 'text' : (LANG[path.extname(f.rel).toLowerCase()] || '');
   stream.write(`\n### ${f.rel}\n\n`);
   stream.write(`${FENCE}${lang}\n`);
-  try {
-    stream.write(fs.readFileSync(f.full, 'utf8'));
-  } catch (err) {
-    stream.write(`[ERROR READING FILE: ${err.message}]`);
+  if (summary) {
+    stream.write(summary);
+  } else {
+    try {
+      stream.write(fs.readFileSync(f.full, 'utf8'));
+    } catch (err) {
+      stream.write(`[ERROR READING FILE: ${err.message}]`);
+    }
   }
   stream.write(`\n${FENCE}\n`);
 }
@@ -280,5 +375,6 @@ stream.on('error', err => {
 });
 stream.on('finish', () => {
   console.log(`Done. ${collected.length} files -> ${outPath}`);
+  if (summarizedFiles.length) console.log(`Summarized ${summarizedFiles.length} large data/notebook file(s).`);
   if (skippedLarge.length) console.log(`Skipped ${skippedLarge.length} large file(s).`);
 });
