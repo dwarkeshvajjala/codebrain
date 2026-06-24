@@ -39,11 +39,18 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+function safeHref(value) {
+  const href = String(value || '').trim();
+  if (/^(https?:|mailto:)/i.test(href)) return escapeHtml(href);
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(href) && !/[\s"'<>]/.test(href)) return escapeHtml(href);
+  return '#';
+}
+
 function inlineMarkdown(text) {
   return escapeHtml(text)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) => `<a href="${safeHref(href)}" target="_blank" rel="noreferrer">${label}</a>`);
 }
 
 function markdownToHtml(markdown = '') {
@@ -260,7 +267,7 @@ function App() {
               onChange={event => setRepoUrl(event.target.value)}
               placeholder="https://github.com/owner/repo"
             />
-            <button type="submit" disabled={!repoUrl || job?.status === 'running'}>Import</button>
+            <button type="submit" disabled={!repoUrl.trim() || job?.status === 'running'}>Import</button>
           </div>
           <label className="check-row">
             <input type="checkbox" checked={cleanup} onChange={event => setCleanup(event.target.checked)} />

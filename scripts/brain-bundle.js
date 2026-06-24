@@ -195,15 +195,15 @@ function summaryForFile(file) {
   ];
 
   try {
+    if (ext === '.npz') {
+      return header.concat('Binary NumPy archive. Contents are not expanded in the text bundle.').join('\n');
+    }
     const text = fs.readFileSync(file.full, 'utf8');
     if (ext === '.json') {
       return header.concat(`JSON shape: ${summarizeJsonValue(JSON.parse(text))}`).join('\n');
     }
     if (ext === '.ipynb') {
       return header.concat(summarizeNotebook(JSON.parse(text))).join('\n');
-    }
-    if (ext === '.npz') {
-      return header.concat('Binary NumPy archive. Contents are not expanded in the text bundle.').join('\n');
     }
     return header.concat(summarizeTextData(text)).join('\n');
   } catch (err) {

@@ -196,8 +196,15 @@ function sleep(ms) {
 }
 
 function retryDelayMs(errorText, attempt) {
-  const retryMatch = String(errorText).match(/try again in ([\d.]+)s/i);
-  if (retryMatch) return Math.ceil(Number(retryMatch[1]) * 1000) + 1000;
+  const text = String(errorText);
+  const retryMatch = text.match(/try again in (?:(\d+)h)?(?:(\d+)m)?([\d.]+)?s?/i);
+  if (retryMatch) {
+    const hours = Number(retryMatch[1] || 0);
+    const minutes = Number(retryMatch[2] || 0);
+    const seconds = Number(retryMatch[3] || 0);
+    const totalMs = ((hours * 3600) + (minutes * 60) + seconds) * 1000;
+    if (totalMs > 0) return Math.ceil(totalMs) + 1000;
+  }
   return (attempt + 1) * 15000;
 }
 
@@ -233,6 +240,9 @@ async function callGroq(prompt, temperature = 0.2) {
     const retryable = (res.status === 429 || /rate_limit_exceeded|tokens per minute/i.test(errorText)) && !tooLarge;
     if (retryable && attempt < 2) {
       const waitMs = retryDelayMs(errorText, attempt);
+      if (waitMs > 120000) {
+        throw new Error(`Groq rate limit will reset in about ${Math.ceil(waitMs / 60000)} minutes. Chunk summaries already written to cache; rerun the same command later to resume.`);
+      }
       console.warn(`  ! Groq rate limit; retrying in ${Math.round(waitMs / 1000)}s`);
       await sleep(waitMs);
       continue;
@@ -251,14 +261,14 @@ function compactPreamble(preamble, budget) {
 }
 
 function sourceSections(sourceBody) {
-  const matches = [...sourceBody.matchAll(/^### .+$/gm)];
+  const matches = [...sourceBody.matchAll(/^### .+\r?\n\r?\n````[^\r\n]*$/gm)];
   if (!matches.length) return [];
 
   return matches.map((match, index) => {
     const start = match.index;
     const end = index + 1 < matches.length ? matches[index + 1].index : sourceBody.length;
     const text = sourceBody.slice(start, end).trim();
-    const rel = match[0].replace(/^###\s*/, '').trim();
+    const rel = match[0].split(/\r?\n/, 1)[0].replace(/^###\s*/, '').trim();
     return { rel, text };
   });
 }
@@ -270,12 +280,30 @@ function splitByLines(text, budget, label) {
   let current = '';
   let part = 1;
 
+  function pushCurrent() {
+    if (!current) return;
+    chunks.push({ rel: `${label} part ${part}`, text: `### ${label} (part ${part})\n\n${current}` });
+    current = '';
+    part++;
+  }
+
   for (const line of lines) {
+    if (line.length > budget) {
+      pushCurrent();
+      for (let offset = 0; offset < line.length; offset += budget) {
+        chunks.push({
+          rel: `${label} part ${part}`,
+          text: `### ${label} (part ${part})\n\n${line.slice(offset, offset + budget)}`,
+        });
+        part++;
+      }
+      continue;
+    }
+
     const next = current ? `${current}\n${line}` : line;
     if (next.length > budget && current) {
-      chunks.push({ rel: `${label} part ${part}`, text: `### ${label} (part ${part})\n\n${current}` });
+      pushCurrent();
       current = line;
-      part++;
     } else {
       current = next;
     }
