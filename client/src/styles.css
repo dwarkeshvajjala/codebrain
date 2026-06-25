@@ -263,6 +263,21 @@ button {
   color: #875d16;
 }
 
+.mini-btn {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--accent-dark);
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.mini-btn:disabled {
+  cursor: not-allowed;
+  opacity: .58;
+}
+
 .dot {
   flex: 0 0 auto;
   width: 9px;

@@ -32,6 +32,30 @@ GROQ_MODEL=llama-3.3-70b-versatile
 
 Without `GROQ_API_KEY`, imports still work in raw-context mode.
 
+Optional remote markdown storage:
+
+```powershell
+BRAIN_STORAGE_PROVIDER=auto
+BRAIN_PROJECT_SOURCE=auto
+BRAIN_STORAGE_BUCKET=code-brain
+BRAIN_REMOTE_PREFIX=code-brain
+SUPABASE_URL=your_supabase_url_here
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key_here
+```
+
+Supabase Storage is the default best fit for markdown and JSON. With those values present, Code Brain creates/uses a public `code-brain` bucket, uploads every generated markdown file, writes a remote `manifest.json`, and reads projects from that manifest first. If remote reading fails, the API falls back to local markdown.
+
+Cloudinary is also supported for raw markdown files:
+
+```powershell
+BRAIN_STORAGE_PROVIDER=cloudinary
+CLOUDINARY_CLOUD_NAME=your_cloud_name_here
+CLOUDINARY_API_KEY=your_cloudinary_api_key_here
+CLOUDINARY_API_SECRET=your_cloudinary_api_secret_here
+```
+
+If you only want to read an already-hosted brain, set `BRAIN_REMOTE_MANIFEST_URL` to the public manifest URL. Use the app's `Sync cloud` button or `POST /api/storage/sync` after adding credentials.
+
 Install dependencies:
 
 ```bash
@@ -73,6 +97,7 @@ http://127.0.0.1:4000
 - `GET /api/projects/:slug`
 - `POST /api/import`
 - `POST /api/import-bulk`
+- `POST /api/storage/sync`
 - `DELETE /api/projects/:slug`
 - `GET /api/jobs/:id`
 
@@ -104,6 +129,8 @@ Supported URL inputs include `https://github.com/owner/repo`, `github.com/owner/
 ```
 
 Bulk import returns `{ jobs, warnings }`. Invalid or duplicate repo inputs are skipped with warnings. The backend keeps a conservative import queue; set `CODE_BRAIN_IMPORT_CONCURRENCY=2` or `3` locally if you want more parallel imports.
+
+`POST /api/storage/sync` uploads the current local brain projects to the configured remote provider and refreshes the remote manifest. Without storage credentials, it returns a skipped result instead of failing the app.
 
 `maxChars` is the approximate per-call chunk size for Groq refinement. It no longer truncates the project context.
 

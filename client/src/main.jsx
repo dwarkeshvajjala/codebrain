@@ -157,6 +157,14 @@ function projectSourceUrl(project) {
   return /^https?:\/\//i.test(url) ? url : '';
 }
 
+function storageLabel(storage) {
+  if (!storage) return 'Storage checking';
+  if (storage.readConfigured && storage.provider === 'local') return 'Remote brain';
+  if (storage.readConfigured) return `${storage.provider} brain`;
+  if (storage.writeConfigured) return `${storage.provider} ready`;
+  return 'Local markdown';
+}
+
 function BrainMark() {
   return (
     <div className="brain-mark" aria-hidden="true">
@@ -184,6 +192,7 @@ function App() {
   const [query, setQuery] = useState('');
   const [deleteSlug, setDeleteSlug] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
 
   async function loadProjects(nextSlug) {
     const data = await api('/api/projects');
@@ -264,6 +273,23 @@ function App() {
     setDeleteSlug('');
   }
 
+  async function syncStorage() {
+    setError('');
+    setNotice('');
+    setSyncing(true);
+    try {
+      const data = await api('/api/storage/sync', { method: 'POST' });
+      setProjects(data.projects);
+      setHealth(current => ({ ...(current || {}), storage: data.storage }));
+      if (data.result?.skipped) setNotice(data.result.reason);
+      else setNotice(`Cloud sync complete. Manifest: ${data.result.manifestUrl}`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   async function deleteProject(slug) {
     if (!slug) return;
     setError('');
@@ -274,6 +300,7 @@ function App() {
       setSelectedSlug(data.projects[0]?.slug || '');
       setSelectedSection('00-overview');
       setDeleteSlug('');
+      if (data.warning) setNotice(data.warning);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -287,7 +314,7 @@ function App() {
         <div className="brand">
           <BrainMark />
           <div>
-            <p className="eyebrow">Local code memory</p>
+            <p className="eyebrow">Portable code memory</p>
             <h1>Code Brain</h1>
           </div>
         </div>
@@ -322,6 +349,10 @@ function App() {
           </span>
           <span className="status-pill">{projects.length} project{projects.length === 1 ? '' : 's'}</span>
           <span className="status-pill">{health?.activeImports || 0} active</span>
+          <span className={`status-pill ${health?.storage?.readConfigured ? 'ready' : 'warn'}`}>{storageLabel(health?.storage)}</span>
+          <button className="mini-btn" type="button" onClick={syncStorage} disabled={syncing}>
+            {syncing ? 'Syncing...' : 'Sync cloud'}
+          </button>
         </div>
 
         <input

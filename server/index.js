@@ -7,6 +7,11 @@ const cors = require('cors');
 const express = require('express');
 
 const { loadEnv } = require('../scripts/load-env');
+const {
+  publicStorageState,
+  readRemoteProjects,
+  syncProjectsToRemote,
+} = require('./remote-storage');
 
 loadEnv();
 
@@ -250,12 +255,32 @@ function runUtility(command, args) {
   });
 }
 
-function listProjects() {
+function listLocalProjects() {
   return fs.readdirSync(PROJECTS_DIR, { withFileTypes: true })
     .filter(entry => entry.isDirectory())
     .map(entry => readProject(entry.name))
     .filter(Boolean)
     .sort((a, b) => a.title.localeCompare(b.title));
+}
+
+async function listProjects() {
+  try {
+    const remoteProjects = await readRemoteProjects();
+    if (remoteProjects) return remoteProjects;
+  } catch (err) {
+    console.warn(`Remote brain read failed; using local markdown: ${err.message}`);
+  }
+  return listLocalProjects();
+}
+
+async function syncRemoteBrain(job) {
+  const result = await syncProjectsToRemote(listLocalProjects());
+  if (result.skipped) {
+    if (job) job.logs.push(`Remote storage skipped: ${result.reason}`);
+    return result;
+  }
+  if (job) job.logs.push(`Remote storage synced: ${result.manifestUrl}`);
+  return result;
 }
 
 function runCommand(job, command, args, options = {}) {
@@ -376,6 +401,13 @@ async function runImport(job, options) {
     job.step = 'Refreshing dashboard';
     await runCommand(job, 'node', [path.join(ROOT, 'scripts', 'brain-ui.js'), '--out', BRAIN_DIR]);
 
+    job.step = 'Syncing remote storage';
+    try {
+      await syncRemoteBrain(job);
+    } catch (err) {
+      job.logs.push(`Remote storage sync failed: ${err.message}`);
+    }
+
     job.status = 'complete';
     job.step = cleanup ? 'Complete - clone deleted' : 'Complete - clone kept';
     job.project = readProject(job.slug);
@@ -395,18 +427,36 @@ app.get('/api/health', (req, res) => {
     activeImports,
     queuedImports: importQueue.length,
     maxImportConcurrency: MAX_IMPORT_CONCURRENCY,
+    storage: publicStorageState(),
   });
 });
 
-app.get('/api/projects', (req, res) => {
-  res.json({ projects: listProjects() });
+app.get('/api/projects', async (req, res) => {
+  try {
+    res.json({ projects: await listProjects() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.get('/api/projects/:slug', (req, res) => {
+app.get('/api/projects/:slug', async (req, res) => {
   if (!isSafeSlug(req.params.slug)) return res.status(400).json({ error: 'Invalid project slug' });
-  const project = readProject(req.params.slug);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
-  res.json({ project });
+  try {
+    const project = (await listProjects()).find(item => item.slug === req.params.slug);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    res.json({ project });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/storage/sync', async (req, res) => {
+  try {
+    const result = await syncRemoteBrain();
+    res.json({ result, storage: publicStorageState(), projects: await listProjects() });
+  } catch (err) {
+    res.status(500).json({ error: err.message, storage: publicStorageState() });
+  }
 });
 
 app.post('/api/import', (req, res) => {
@@ -453,7 +503,14 @@ app.delete('/api/projects/:slug', async (req, res) => {
     return res.status(500).json({ error: `Project deleted, but dashboard refresh failed: ${err.message}` });
   }
 
-  res.json({ deleted: slug, projects: listProjects() });
+  let syncWarning = '';
+  try {
+    await syncRemoteBrain();
+  } catch (err) {
+    syncWarning = `Remote storage sync failed: ${err.message}`;
+  }
+
+  res.json({ deleted: slug, projects: await listProjects(), warning: syncWarning });
 });
 
 app.get('/api/jobs/:id', (req, res) => {
