@@ -17,8 +17,12 @@ const BRAIN_DIR = path.join(ROOT, 'brain');
 const PROJECTS_DIR = path.join(BRAIN_DIR, 'projects');
 const STAGING_DIR = path.join(BRAIN_DIR, '_staging');
 const RUNS_DIR = path.join(BRAIN_DIR, '_runs');
+const MAX_IMPORT_CONCURRENCY = Math.max(1, Math.min(3, Number(process.env.CODE_BRAIN_IMPORT_CONCURRENCY || 1)));
+const MAX_BULK_IMPORTS = 20;
 
 const jobs = new Map();
+const importQueue = [];
+let activeImports = 0;
 
 fs.mkdirSync(PROJECTS_DIR, { recursive: true });
 fs.mkdirSync(STAGING_DIR, { recursive: true });
@@ -27,8 +31,52 @@ fs.mkdirSync(RUNS_DIR, { recursive: true });
 app.use(cors({ origin: true }));
 app.use(express.json({ limit: '1mb' }));
 
-function isGitHubUrl(value) {
-  return /^https:\/\/github\.com\/[^/\s]+\/[^/\s#?]+(?:\.git)?(?:[?#].*)?$/i.test(String(value || '').trim());
+function normalizeGitHubUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  const ssh = raw.match(/^git@github\.com:([A-Za-z0-9-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[?#].*)?$/i);
+  if (ssh) return `https://github.com/${ssh[1]}/${ssh[2].replace(/\.git$/i, '')}`;
+
+  const normalized = raw.startsWith('github.com/') ? `https://${raw}` : raw;
+  const match = normalized.match(/^https:\/\/github\.com\/([A-Za-z0-9-]+)\/([A-Za-z0-9_.-]+)(?:\.git)?(?:[/?#].*)?$/i);
+  if (!match) return '';
+
+  return `https://github.com/${match[1]}/${match[2].replace(/\.git$/i, '')}`;
+}
+
+function parseRepoInputs(value) {
+  const items = Array.isArray(value)
+    ? value
+    : String(value || '').split(/[\s,]+/);
+  return items.map(item => String(item || '').trim()).filter(Boolean);
+}
+
+function normalizeRepoList(value) {
+  const seen = new Set();
+  const urls = [];
+  const warnings = [];
+
+  for (const item of parseRepoInputs(value)) {
+    const url = normalizeGitHubUrl(item);
+    if (!url) {
+      warnings.push(`Skipped invalid GitHub URL: ${item}`);
+      continue;
+    }
+    if (seen.has(url)) {
+      warnings.push(`Skipped duplicate repository: ${url}`);
+      continue;
+    }
+    seen.add(url);
+    urls.push(url);
+  }
+
+  if (urls.length > MAX_BULK_IMPORTS) {
+    warnings.push(`Only the first ${MAX_BULK_IMPORTS} valid repositories were queued.`);
+    urls.length = MAX_BULK_IMPORTS;
+  }
+
+  return { urls, warnings };
 }
 
 function isSafeSlug(value) {
@@ -56,6 +104,49 @@ function parseContextMeta(context) {
   const header = String(context || '').match(/^#\s*Project Context:\s*(.+)$/m);
   if (header) meta.project = header[1].trim();
   return meta;
+}
+
+function parseContextList(context, heading) {
+  const pattern = new RegExp(`^## ${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'm');
+  const match = String(context || '').match(pattern);
+  if (!match) return [];
+
+  const start = match.index + match[0].length;
+  const rest = String(context || '').slice(start);
+  const end = rest.search(/^##\s+/m);
+  const section = end === -1 ? rest : rest.slice(0, end);
+  return section
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(line => line.startsWith('- '))
+    .map(line => line.replace(/^-\s*/, ''));
+}
+
+function numberFromMeta(value) {
+  const parsed = Number(String(value || '').replace(/[^\d]/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function parseRawContextInfo(context) {
+  const meta = parseContextMeta(context);
+  const fileTypes = parseContextList(context, 'File type breakdown')
+    .map(item => {
+      const match = item.match(/^(.+):\s*(\d+)$/);
+      return match ? { type: match[1], count: Number(match[2]) } : null;
+    })
+    .filter(Boolean);
+
+  return {
+    generated: meta.generated || '',
+    sourcePath: meta['source path'] || '',
+    gitUrl: meta['git url'] || '',
+    filesIncluded: numberFromMeta(meta['files included']),
+    filesSummarized: numberFromMeta(meta['files summarized (large data/notebooks)']),
+    filesSkipped: numberFromMeta(meta['files skipped (> 120 kb)'] || meta['files skipped (> 250 kb)']),
+    fileTypes,
+    skippedLargeFiles: parseContextList(context, 'Skipped large files'),
+    summarizedFiles: parseContextList(context, 'Summarized data/notebook files'),
+  };
 }
 
 function readIfExists(file) {
@@ -99,10 +190,12 @@ function readProject(slug) {
     .filter(section => section.content);
 
   const overview = sections.find(section => section.key === '00-overview')?.content || '';
+  const rawContext = sections.find(section => section.key === 'raw.context')?.content || '';
   return {
     slug,
     title: titleFrom(overview, slug),
     summary: summaryFrom(overview),
+    meta: parseRawContextInfo(rawContext),
     sections,
   };
 }
@@ -193,11 +286,12 @@ function runCommand(job, command, args, options = {}) {
 
 function createJob(repoUrl, options) {
   const id = crypto.randomUUID();
-  const slug = slugFromSource(repoUrl);
+  const normalizedUrl = normalizeGitHubUrl(repoUrl);
+  const slug = slugFromSource(normalizedUrl);
   const job = {
     id,
     slug,
-    repoUrl,
+    repoUrl: normalizedUrl,
     status: 'queued',
     step: 'Queued',
     createdAt: new Date().toISOString(),
@@ -207,14 +301,28 @@ function createJob(repoUrl, options) {
     error: null,
   };
   jobs.set(id, job);
-  runImport(job, options).catch(err => {
-    job.status = 'failed';
-    job.step = 'Failed';
-    job.error = err.message;
-    job.logs.push(`ERROR: ${err.message}`);
-    job.updatedAt = new Date().toISOString();
-  });
+  importQueue.push({ job, options });
+  processImportQueue();
   return job;
+}
+
+function processImportQueue() {
+  while (activeImports < MAX_IMPORT_CONCURRENCY && importQueue.length) {
+    const task = importQueue.shift();
+    activeImports++;
+    runImport(task.job, task.options)
+      .catch(err => {
+        task.job.status = 'failed';
+        task.job.step = 'Failed';
+        task.job.error = err.message;
+        task.job.logs.push(`ERROR: ${err.message}`);
+        task.job.updatedAt = new Date().toISOString();
+      })
+      .finally(() => {
+        activeImports--;
+        processImportQueue();
+      });
+  }
 }
 
 async function runImport(job, options) {
@@ -281,7 +389,13 @@ async function runImport(job, options) {
 }
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, groqConfigured: Boolean(process.env.GROQ_API_KEY) });
+  res.json({
+    ok: true,
+    groqConfigured: Boolean(process.env.GROQ_API_KEY),
+    activeImports,
+    queuedImports: importQueue.length,
+    maxImportConcurrency: MAX_IMPORT_CONCURRENCY,
+  });
 });
 
 app.get('/api/projects', (req, res) => {
@@ -296,8 +410,8 @@ app.get('/api/projects/:slug', (req, res) => {
 });
 
 app.post('/api/import', (req, res) => {
-  const repoUrl = String(req.body.repoUrl || '').trim();
-  if (!isGitHubUrl(repoUrl)) return res.status(400).json({ error: 'Paste a valid https://github.com/owner/repo URL.' });
+  const repoUrl = normalizeGitHubUrl(req.body.repoUrl);
+  if (!repoUrl) return res.status(400).json({ error: 'Paste a valid GitHub repo URL like https://github.com/owner/repo.' });
 
   const job = createJob(repoUrl, {
     cleanup: req.body.cleanup !== false,
@@ -306,6 +420,22 @@ app.post('/api/import', (req, res) => {
     model: req.body.model,
   });
   res.status(202).json({ job });
+});
+
+app.post('/api/import-bulk', (req, res) => {
+  const { urls, warnings } = normalizeRepoList(req.body.urls || req.body.repoUrls || req.body.text);
+  if (!urls.length) {
+    return res.status(400).json({ error: 'No valid GitHub repository URLs found.', warnings });
+  }
+
+  const options = {
+    cleanup: req.body.cleanup !== false,
+    maxKb: Number(req.body.maxKb || 120),
+    maxChars: Number(req.body.maxChars || 30000),
+    model: req.body.model,
+  };
+  const queuedJobs = urls.map(url => createJob(url, options));
+  res.status(202).json({ jobs: queuedJobs, warnings });
 });
 
 app.delete('/api/projects/:slug', async (req, res) => {

@@ -7,8 +7,8 @@ Paste a GitHub URL, let the backend clone and scan it, then browse the result in
 ## Current Product Workflow
 
 1. Open the React app.
-2. Paste a GitHub repo URL.
-3. The Express backend creates an autonomous import job.
+2. Paste one GitHub repo URL, or paste multiple GitHub URLs separated by spaces, commas, or new lines.
+3. The Express backend normalizes supported GitHub formats and queues autonomous import jobs.
 4. The job clones the repo into `brain/_runs/<job>/`.
 5. The bundler scans source files, skips secrets/binaries/build folders/huge files, and summarizes large data or notebook assets so code context keeps priority.
 6. If `GROQ_API_KEY` is configured, Groq refines the raw context into markdown. Large contexts are split into chunks first, then merged so later files are not lost:
@@ -72,6 +72,7 @@ http://127.0.0.1:4000
 - `GET /api/projects`
 - `GET /api/projects/:slug`
 - `POST /api/import`
+- `POST /api/import-bulk`
 - `DELETE /api/projects/:slug`
 - `GET /api/jobs/:id`
 
@@ -85,6 +86,24 @@ http://127.0.0.1:4000
   "maxKb": 120
 }
 ```
+
+Supported URL inputs include `https://github.com/owner/repo`, `github.com/owner/repo`, `https://github.com/owner/repo/tree/main`, and `git@github.com:owner/repo.git`. They are normalized before cloning.
+
+`POST /api/import-bulk` body:
+
+```json
+{
+  "urls": [
+    "https://github.com/owner/repo",
+    "github.com/owner/another-repo"
+  ],
+  "cleanup": true,
+  "maxChars": 30000,
+  "maxKb": 120
+}
+```
+
+Bulk import returns `{ jobs, warnings }`. Invalid or duplicate repo inputs are skipped with warnings. The backend keeps a conservative import queue; set `CODE_BRAIN_IMPORT_CONCURRENCY=2` or `3` locally if you want more parallel imports.
 
 `maxChars` is the approximate per-call chunk size for Groq refinement. It no longer truncates the project context.
 

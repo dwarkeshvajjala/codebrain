@@ -30,7 +30,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -166,7 +167,7 @@ button {
   gap: 8px;
 }
 
-.url-row input,
+.url-row textarea,
 .search {
   width: 100%;
   border: 1px solid var(--line);
@@ -177,10 +178,16 @@ button {
   color: var(--ink);
 }
 
-.url-row input:focus,
+.url-row textarea:focus,
 .search:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.url-row textarea {
+  min-height: 86px;
+  line-height: 1.45;
+  resize: vertical;
 }
 
 .url-row button,
@@ -298,10 +305,17 @@ button {
 }
 
 .project-btn span,
+.project-btn small,
 .empty-note {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.4;
+}
+
+.project-btn small {
+  display: block;
+  margin-top: 7px;
+  font-weight: 750;
 }
 
 .project-btn .mode-chip {
@@ -365,6 +379,13 @@ button {
   background: #fff4f2;
 }
 
+.notice.info {
+  border-color: #b7d8ca;
+  color: var(--accent-dark);
+  background: #f1faf5;
+  white-space: pre-line;
+}
+
 .job-panel {
   padding: 16px;
 }
@@ -405,6 +426,61 @@ button {
   line-height: 1.5;
 }
 
+.job-list {
+  display: grid;
+  gap: 10px;
+}
+
+.job-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 11px;
+}
+
+.job-card strong,
+.job-card span,
+.job-card em {
+  display: block;
+}
+
+.job-card span,
+.job-card em {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 3px;
+}
+
+.job-card em {
+  color: var(--danger);
+  font-style: normal;
+}
+
+.job-card b {
+  color: var(--accent-dark);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.job-card details {
+  grid-column: 1 / -1;
+}
+
+.job-card summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.job-card pre {
+  margin-top: 8px;
+  max-height: 170px;
+}
+
 .brain-panel {
   padding: 24px;
 }
@@ -429,6 +505,17 @@ button {
   flex-wrap: wrap;
   gap: 8px;
   min-width: 250px;
+}
+
+.source-link {
+  border: 1px solid #b7d8ca;
+  border-radius: 8px;
+  background: #edf8f2;
+  color: var(--accent-dark);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
 }
 
 .delete-btn,
@@ -474,6 +561,58 @@ button {
   color: var(--danger);
   font-size: 13px;
   font-weight: 750;
+}
+
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0 0 14px;
+}
+
+.meta-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfdf9;
+  padding: 12px;
+}
+
+.meta-card span,
+.meta-card small {
+  display: block;
+}
+
+.meta-card span {
+  color: var(--accent-dark);
+  font-size: 24px;
+  font-weight: 850;
+}
+
+.meta-card small {
+  color: var(--muted);
+  margin-top: 2px;
+  font-weight: 750;
+}
+
+.type-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.type-strip span {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--muted);
+  padding: 6px 9px;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.type-strip b {
+  color: var(--ink);
 }
 
 .tabs {
@@ -623,5 +762,9 @@ button {
 
   .url-row {
     grid-template-columns: 1fr;
+  }
+
+  .meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

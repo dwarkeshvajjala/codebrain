@@ -138,6 +138,25 @@ function projectMode(project) {
   return keys.has('01-architecture') ? 'AI notes' : 'Raw bundle';
 }
 
+function repoInputItems(value) {
+  return String(value || '').split(/[\s,]+/).map(item => item.trim()).filter(Boolean);
+}
+
+function projectStats(project) {
+  const meta = project?.meta || {};
+  return [
+    ['Files', meta.filesIncluded || 0],
+    ['Summarized', meta.filesSummarized || 0],
+    ['Skipped', meta.filesSkipped || 0],
+    ['Sections', project?.sections?.length || 0],
+  ];
+}
+
+function projectSourceUrl(project) {
+  const url = project?.meta?.gitUrl || '';
+  return /^https?:\/\//i.test(url) ? url : '';
+}
+
 function BrainMark() {
   return (
     <div className="brain-mark" aria-hidden="true">
@@ -159,8 +178,9 @@ function App() {
   const [selectedSection, setSelectedSection] = useState('00-overview');
   const [repoUrl, setRepoUrl] = useState('');
   const [cleanup, setCleanup] = useState(true);
-  const [job, setJob] = useState(null);
+  const [jobs, setJobs] = useState([]);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [query, setQuery] = useState('');
   const [deleteSlug, setDeleteSlug] = useState('');
   const [deleting, setDeleting] = useState(false);
@@ -179,18 +199,25 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!job || !['queued', 'running'].includes(job.status)) return undefined;
+    const activeJobs = jobs.filter(item => ['queued', 'running'].includes(item.status));
+    if (!activeJobs.length) return undefined;
     const timer = setInterval(async () => {
       try {
-        const data = await api(`/api/jobs/${job.id}`);
-        setJob(data.job);
-        if (data.job.status === 'complete') await loadProjects(data.job.slug);
+        const updates = await Promise.all(activeJobs.map(item =>
+          api(`/api/jobs/${item.id}`)
+            .then(data => data.job)
+            .catch(err => ({ ...item, status: 'failed', step: 'Failed', error: err.message }))
+        ));
+        setJobs(current => current.map(item => updates.find(update => update.id === item.id) || item));
+        api('/api/health').then(setHealth).catch(() => undefined);
+        const completed = updates.find(item => item.status === 'complete');
+        if (completed) await loadProjects(completed.slug);
       } catch (err) {
         setError(err.message);
       }
     }, 1200);
     return () => clearInterval(timer);
-  }, [job]);
+  }, [jobs]);
 
   const selectedProject = projects.find(project => project.slug === selectedSlug) || projects[0];
   const sections = selectedProject?.sections || [];
@@ -212,13 +239,20 @@ function App() {
   async function submitImport(event) {
     event.preventDefault();
     setError('');
-    setJob(null);
+    setNotice('');
     try {
-      const data = await api('/api/import', {
+      const urls = repoInputItems(repoUrl);
+      const bulk = urls.length > 1;
+      const data = await api(bulk ? '/api/import-bulk' : '/api/import', {
         method: 'POST',
-        body: JSON.stringify({ repoUrl, cleanup, maxChars: 30000, maxKb: 120 }),
+        body: JSON.stringify(bulk
+          ? { urls, cleanup, maxChars: 30000, maxKb: 120 }
+          : { repoUrl: urls[0] || repoUrl, cleanup, maxChars: 30000, maxKb: 120 }),
       });
-      setJob(data.job);
+      const nextJobs = data.jobs || [data.job];
+      setJobs(current => [...nextJobs, ...current].slice(0, 24));
+      if (data.warnings?.length) setNotice(data.warnings.join('\n'));
+      else setNotice(`${nextJobs.length} import${nextJobs.length === 1 ? '' : 's'} queued.`);
     } catch (err) {
       setError(err.message);
     }
@@ -261,13 +295,16 @@ function App() {
         <form className="import-card" onSubmit={submitImport}>
           <label htmlFor="repoUrl">GitHub repo URL</label>
           <div className="url-row">
-            <input
+            <textarea
               id="repoUrl"
               value={repoUrl}
               onChange={event => setRepoUrl(event.target.value)}
-              placeholder="https://github.com/owner/repo"
+              placeholder={'https://github.com/owner/repo\nhttps://github.com/owner/another-repo'}
+              rows={3}
             />
-            <button type="submit" disabled={!repoUrl.trim() || job?.status === 'running'}>Import</button>
+            <button type="submit" disabled={!repoUrl.trim() || jobs.some(item => ['queued', 'running'].includes(item.status))}>
+              Import{repoInputItems(repoUrl).length > 1 ? ` ${repoInputItems(repoUrl).length}` : ''}
+            </button>
           </div>
           <label className="check-row">
             <input type="checkbox" checked={cleanup} onChange={event => setCleanup(event.target.checked)} />
@@ -284,6 +321,7 @@ function App() {
             {health?.groqConfigured ? 'Groq ready' : 'Raw mode'}
           </span>
           <span className="status-pill">{projects.length} project{projects.length === 1 ? '' : 's'}</span>
+          <span className="status-pill">{health?.activeImports || 0} active</span>
         </div>
 
         <input
@@ -305,6 +343,7 @@ function App() {
                 <span className="mode-chip">{projectMode(project)}</span>
               </strong>
               <span>{project.summary}</span>
+              {!!project.meta?.filesIncluded && <small>{project.meta.filesIncluded} bundled files</small>}
             </button>
           ))}
           {!filteredProjects.length && <p className="empty-note">No projects match.</p>}
@@ -327,17 +366,33 @@ function App() {
         </header>
 
         {error && <div className="notice error">{error}</div>}
+        {notice && <div className="notice info">{notice}</div>}
 
-        {job && (
-          <section className={`job-panel ${job.status}`}>
+        {!!jobs.length && (
+          <section className="job-panel">
             <div className="job-head">
               <div>
-                <strong>{job.step}</strong>
-                <span>{job.repoUrl}</span>
+                <strong>Import queue</strong>
+                <span>{jobs.filter(item => ['queued', 'running'].includes(item.status)).length} active or queued</span>
               </div>
-              <b>{job.status}</b>
+              <b>{jobs.length} shown</b>
             </div>
-            <pre>{job.logs.slice(-18).join('\n') || 'Starting...'}</pre>
+            <div className="job-list">
+              {jobs.map(item => (
+                <article className={`job-card ${item.status}`} key={item.id}>
+                  <div>
+                    <strong>{item.slug}</strong>
+                    <span>{item.step}</span>
+                    {item.error && <em>{item.error}</em>}
+                  </div>
+                  <b>{item.status}</b>
+                  <details>
+                    <summary>Logs</summary>
+                    <pre>{item.logs?.slice(-10).join('\n') || 'Waiting...'}</pre>
+                  </details>
+                </article>
+              ))}
+            </div>
           </section>
         )}
 
@@ -353,6 +408,9 @@ function App() {
                 <div className="project-actions">
                   <span className="project-chip">{projectMode(selectedProject)}</span>
                   <span className="project-chip">{sections.length} file{sections.length === 1 ? '' : 's'}</span>
+                  {projectSourceUrl(selectedProject) && (
+                    <a className="source-link" href={projectSourceUrl(selectedProject)} target="_blank" rel="noreferrer">Source</a>
+                  )}
                   {deleteSlug === selectedProject.slug ? (
                     <div className="delete-confirm">
                       <span>Delete this project?</span>
@@ -368,6 +426,23 @@ function App() {
                   )}
                 </div>
               </div>
+
+              <div className="meta-grid">
+                {projectStats(selectedProject).map(([label, value]) => (
+                  <div className="meta-card" key={label}>
+                    <span>{value}</span>
+                    <small>{label}</small>
+                  </div>
+                ))}
+              </div>
+
+              {!!selectedProject.meta?.fileTypes?.length && (
+                <div className="type-strip">
+                  {selectedProject.meta.fileTypes.slice(0, 8).map(item => (
+                    <span key={item.type}>{item.type} <b>{item.count}</b></span>
+                  ))}
+                </div>
+              )}
 
               <nav className="tabs">
                 {SECTION_ORDER
