@@ -68,6 +68,18 @@ Run app:
 npm run dev
 ```
 
+If Windows opens a "How do you want to open this file?" dialog for `npm`, your Node install is missing or not resolving `npm.cmd`. Use the project launcher instead:
+
+```powershell
+.\run-dev.cmd
+```
+
+or:
+
+```powershell
+node scripts/dev-server.js
+```
+
 Open:
 
 ```text
@@ -153,6 +165,13 @@ Use `.env.example` placeholders only in git. Keep real Supabase keys local and r
 ```bash
 npm run build
 npm start
+```
+
+If `npm` opens as a file on Windows, use the direct Node commands:
+
+```powershell
+node .\node_modules\vite\bin\vite.js build
+node .\server\index.js
 ```
 
 In production mode, Express serves the built React app from `dist/`.

@@ -15,6 +15,7 @@ node_modules/
 brain-server*.log
 api*.log
 client*.log
+*.pid
 
 # OS
 .DS_Store
