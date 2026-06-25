@@ -194,6 +194,7 @@ function BrainMark() {
 function App() {
   const [health, setHealth] = useState(null);
   const [projects, setProjects] = useState([]);
+  const [view, setView] = useState('dashboard');
   const [selectedSlug, setSelectedSlug] = useState('');
   const [selectedSection, setSelectedSection] = useState('00-overview');
   const [repoUrl, setRepoUrl] = useState('');
@@ -260,6 +261,22 @@ function App() {
     });
   }, [projects, query]);
 
+  const dashboard = useMemo(() => {
+    const aiProjects = projects.filter(hasAiNotes);
+    const configProjects = projects.filter(project =>
+      project.sections.some(item => item.key === '05-configuration')
+    );
+    const totalFiles = projects.reduce((sum, project) => sum + Number(project.meta?.filesIncluded || 0), 0);
+
+    return {
+      aiCount: aiProjects.length,
+      rawCount: projects.length - aiProjects.length,
+      configCount: configProjects.length,
+      totalFiles,
+      recent: projects.slice(0, 6),
+    };
+  }, [projects]);
+
   async function submitImport(event) {
     event.preventDefault();
     setError('');
@@ -285,6 +302,12 @@ function App() {
   function selectProject(slug) {
     setSelectedSlug(slug);
     setSelectedSection('00-overview');
+    setDeleteSlug('');
+    setView('project');
+  }
+
+  function openDashboard() {
+    setView('dashboard');
     setDeleteSlug('');
   }
 
@@ -331,6 +354,7 @@ function App() {
       setSelectedSlug(data.projects[0]?.slug || '');
       setSelectedSection('00-overview');
       setDeleteSlug('');
+      setView('dashboard');
       if (data.warning) setNotice(data.warning);
     } catch (err) {
       setError(err.message);
@@ -350,8 +374,17 @@ function App() {
           </div>
         </div>
 
+        <button
+          className={`dashboard-link ${view === 'dashboard' ? 'active' : ''}`}
+          type="button"
+          onClick={openDashboard}
+        >
+          Dashboard
+          <span>{projects.length} project{projects.length === 1 ? '' : 's'}</span>
+        </button>
+
         <form className="import-card" onSubmit={submitImport}>
-          <label htmlFor="repoUrl">GitHub repo URL</label>
+          <label htmlFor="repoUrl">Import GitHub repos</label>
           <div className="url-row">
             <textarea
               id="repoUrl"
@@ -361,7 +394,7 @@ function App() {
               rows={3}
             />
             <button type="submit" disabled={!repoUrl.trim() || activeJobCount(jobs) > 0}>
-              Import{repoInputItems(repoUrl).length > 1 ? ` ${repoInputItems(repoUrl).length}` : ''}
+              Import raw{repoInputItems(repoUrl).length > 1 ? ` (${repoInputItems(repoUrl).length})` : ''}
             </button>
           </div>
           <label className="check-row">
@@ -397,7 +430,7 @@ function App() {
           {filteredProjects.map(project => (
             <button
               key={project.slug}
-              className={`project-btn ${project.slug === selectedProject?.slug ? 'active' : ''}`}
+              className={`project-btn ${view === 'project' && project.slug === selectedProject?.slug ? 'active' : ''}`}
               onClick={() => selectProject(project.slug)}
             >
               <strong>
@@ -415,11 +448,19 @@ function App() {
       <section className="workspace">
         <header className="hero">
           <div>
-            <p className="eyebrow">Autonomous markdown generation</p>
-            <h2>Paste a repo. Build the raw brain.</h2>
+            <p className="eyebrow">Portable repo intelligence</p>
+            <h2>Dashboard first. Deep dives when you need them.</h2>
             <p>
-              Code Brain imports repos quickly first, extracts configuration and integrations without AI, then lets you run Groq analysis as a second step.
+              Import a repo into raw markdown, surface configuration and integrations instantly, then run Groq analysis only on the projects worth deeper notes.
             </p>
+            <div className="hero-actions">
+              <button type="button" className="primary-action" onClick={() => document.getElementById('repoUrl')?.focus()}>
+                Import a repo
+              </button>
+              <button type="button" className="secondary-action" onClick={openDashboard}>
+                View dashboard
+              </button>
+            </div>
           </div>
           <div className="metrics">
             <span>{projects.length}</span>
@@ -461,7 +502,131 @@ function App() {
         )}
 
         <section className="brain-panel">
-          {selectedProject ? (
+          {view === 'dashboard' ? (
+            <div className="dashboard-view">
+              <div className="dashboard-head">
+                <div>
+                  <p className="eyebrow">Workspace overview</p>
+                  <h2>Code memory dashboard</h2>
+                  <p>
+                    Your imports stay useful immediately as raw context. AI notes, source links, configuration findings, and cloud sync are optional follow-up actions.
+                  </p>
+                </div>
+                <button type="button" className="primary-action compact" onClick={() => document.getElementById('repoUrl')?.focus()}>
+                  New import
+                </button>
+              </div>
+
+              <div className="dashboard-stats">
+                <div className="stat-card">
+                  <span>{projects.length}</span>
+                  <small>Total projects</small>
+                </div>
+                <div className="stat-card">
+                  <span>{dashboard.totalFiles}</span>
+                  <small>Bundled files</small>
+                </div>
+                <div className="stat-card">
+                  <span>{dashboard.aiCount}</span>
+                  <small>AI analyzed</small>
+                </div>
+                <div className="stat-card">
+                  <span>{dashboard.configCount}</span>
+                  <small>Config indexed</small>
+                </div>
+              </div>
+
+              <div className="workflow-grid">
+                <article className="workflow-card">
+                  <b>1</b>
+                  <h3>Raw import</h3>
+                  <p>Clone, bundle useful source files, ignore bulky styling/media, and write a local markdown snapshot.</p>
+                </article>
+                <article className="workflow-card">
+                  <b>2</b>
+                  <h3>Config map</h3>
+                  <p>Detect env keys, package scripts, likely services, and storage/API hints without spending AI tokens.</p>
+                </article>
+                <article className="workflow-card">
+                  <b>3</b>
+                  <h3>AI analysis</h3>
+                  <p>Run Groq only when needed. The generated notes appear as architecture, packages, implementation, and gotcha tabs.</p>
+                </article>
+                <article className="workflow-card">
+                  <b>4</b>
+                  <h3>Cloud sync</h3>
+                  <p>Keep local markdown as the source of truth now, then connect Supabase or Cloudinary when credentials are ready.</p>
+                </article>
+              </div>
+
+              <div className="dashboard-columns">
+                <section className="dashboard-section">
+                  <div className="section-title">
+                    <h3>Recent projects</h3>
+                    <span>{dashboard.rawCount} raw bundle{dashboard.rawCount === 1 ? '' : 's'}</span>
+                  </div>
+                  <div className="dashboard-project-list">
+                    {dashboard.recent.map(project => {
+                      const analyzing = jobs.some(item => item.slug === project.slug && item.type === 'analysis' && ['queued', 'running'].includes(item.status));
+                      return (
+                        <article className="project-row" key={project.slug}>
+                          <div>
+                            <strong>{project.title}</strong>
+                            <p>{project.summary}</p>
+                            <small>{projectMode(project)} - {project.meta?.filesIncluded || 0} bundled files</small>
+                          </div>
+                          <div className="project-row-actions">
+                            <button type="button" className="secondary-action compact" onClick={() => selectProject(project.slug)}>
+                              Open
+                            </button>
+                            {!hasAiNotes(project) && (
+                              <button type="button" className="analyze-btn compact" onClick={() => analyzeProject(project.slug)} disabled={analyzing}>
+                                {analyzing ? 'Analyzing...' : 'Analyze'}
+                              </button>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                    {!dashboard.recent.length && (
+                      <div className="empty-mini">
+                        <strong>No projects yet</strong>
+                        <span>Paste a GitHub URL in the sidebar to build the first brain.</span>
+                      </div>
+                    )}
+                  </div>
+                </section>
+
+                <section className="dashboard-section">
+                  <div className="section-title">
+                    <h3>Next actions</h3>
+                    <span>{activeJobCount(jobs)} active</span>
+                  </div>
+                  <div className="next-actions">
+                    <button type="button" onClick={() => document.getElementById('repoUrl')?.focus()}>
+                      <strong>Import another repo</strong>
+                      <span>Raw bundle first, AI later.</span>
+                    </button>
+                    <button type="button" onClick={syncStorage} disabled={syncing}>
+                      <strong>{syncing ? 'Syncing cloud' : 'Sync cloud'}</strong>
+                      <span>{storageLabel(health?.storage)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const rawProject = projects.find(project => !hasAiNotes(project));
+                        if (rawProject) selectProject(rawProject.slug);
+                      }}
+                      disabled={!dashboard.rawCount}
+                    >
+                      <strong>Review raw bundles</strong>
+                      <span>{dashboard.rawCount ? `${dashboard.rawCount} waiting for optional AI` : 'Everything has AI notes'}</span>
+                    </button>
+                  </div>
+                </section>
+              </div>
+            </div>
+          ) : selectedProject ? (
             <>
               <div className="project-head">
                 <div>
