@@ -2,24 +2,27 @@
 
 Code Brain turns GitHub repositories into a local markdown knowledge base.
 
-Paste a GitHub URL, let the backend clone and scan it, then browse the result in the React brain dashboard. With `GROQ_API_KEY` configured, imports also generate structured project markdown with Groq.
+Paste a GitHub URL, let the backend clone and scan it, then browse the result in the React brain dashboard. Imports are raw-first by default; use `Analyze with AI` when you want Groq to generate deeper project notes.
 
 ## Current Product Workflow
 
 1. Open the React app.
 2. Paste one GitHub repo URL, or paste multiple GitHub URLs separated by spaces, commas, or new lines.
-3. The Express backend normalizes supported GitHub formats and queues autonomous import jobs.
+3. The Express backend normalizes supported GitHub formats and queues raw import jobs.
 4. The job clones the repo into `brain/_runs/<job>/`.
-5. The bundler scans source files, skips secrets/binaries/build folders/huge files, and summarizes large data or notebook assets so code context keeps priority.
-6. If `GROQ_API_KEY` is configured, Groq refines the raw context into markdown. Large contexts are split into chunks first, then merged so later files are not lost:
+5. The bundler scans source files, skips secrets/binaries/build folders/huge files/style files/media assets, and summarizes large data or notebook assets so code context keeps priority.
+6. The raw import writes `raw.context.md`, an overview, and deterministic `05-configuration.md` without using AI.
+7. Click `Analyze with AI` on a project when you want Groq to refine the raw context into markdown. Large contexts are split into chunks first, then merged so later files are not lost:
    - `00-overview.md`
    - `01-architecture.md`
    - `02-packages.md`
    - `03-implementations.md`
    - `04-gotchas.md`
+   - `05-configuration.md`
    - `raw.context.md`
-7. The dashboard refreshes.
-8. The temporary cloned repo is deleted automatically by default.
+   If Groq rate-limits or fails, the import still saves a raw bundle project with a deterministic configuration summary.
+8. The dashboard refreshes.
+9. The temporary cloned repo is deleted automatically by default.
 
 ## Run Locally
 
@@ -109,6 +112,7 @@ http://127.0.0.1:4000
 - `GET /api/projects/:slug`
 - `POST /api/import`
 - `POST /api/import-bulk`
+- `POST /api/projects/:slug/analyze`
 - `POST /api/storage/sync`
 - `DELETE /api/projects/:slug`
 - `GET /api/jobs/:id`
@@ -142,9 +146,23 @@ Supported URL inputs include `https://github.com/owner/repo`, `github.com/owner/
 
 Bulk import returns `{ jobs, warnings }`. Invalid or duplicate repo inputs are skipped with warnings. The backend keeps a conservative import queue; set `CODE_BRAIN_IMPORT_CONCURRENCY=2` or `3` locally if you want more parallel imports.
 
+`POST /api/projects/:slug/analyze` runs Groq analysis against that project's existing `raw.context.md`. Import no longer spends Groq tokens automatically unless the API caller sends `"analyze": true`.
+
 `POST /api/storage/sync` uploads the current local brain projects to the configured remote provider and refreshes the remote manifest. Without storage credentials, it returns a skipped result instead of failing the app.
 
 `maxChars` is the approximate per-call chunk size for Groq refinement. It no longer truncates the project context.
+
+## Bundling Rules
+
+By default, Code Brain excludes CSS/SCSS/Less/Stylus files, images, photos, video, fonts, design files, build folders, lock files, and known secret files. This keeps Groq focused on architecture, implementation, packages, and configuration instead of spending tokens on styling or binary assets.
+
+The raw context now includes `Configuration & integrations`, which lists config files, environment variables, API key names, connection-string names, and integration keys by name and path only. Secret values are not copied into that summary.
+
+If you are intentionally analyzing UI/design code, run the bundler with:
+
+```powershell
+node scripts/brain-bundle.js <repo-folder> --include-styles
+```
 
 ## Optional Supabase Later
 

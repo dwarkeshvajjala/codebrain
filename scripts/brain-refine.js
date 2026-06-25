@@ -3,7 +3,7 @@
  * brain-refine.js
  * Phase 2 (AI pass): turn a raw *.context.md into structured brain entries.
  *
- * Flow:  context.md  ->  Groq  ->  brain/projects/<name>/00..04.md  ->  rebuild README index
+ * Flow:  context.md  ->  Groq  ->  brain/projects/<name>/00..05.md  ->  rebuild README index
  *
  * Setup (Node 18+, no dependencies — uses built-in fetch):
  *   export GROQ_API_KEY=your_key        # Windows PowerShell: $env:GROQ_API_KEY="your_key"
@@ -96,18 +96,19 @@ const contextHash = crypto.createHash('sha1').update(context).digest('hex').slic
 const modelKey = model.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'model';
 const cacheDir = path.join(path.dirname(inputPath), '_refine_cache', `${slug}-${contextHash}-${modelKey}-${maxChars}`);
 
-const SECTIONS = ['00-overview', '01-architecture', '02-packages', '03-implementations', '04-gotchas'];
+const SECTIONS = ['00-overview', '01-architecture', '02-packages', '03-implementations', '04-gotchas', '05-configuration'];
 
 function documentPrompt(sourceLabel, projectContext) {
   return `You are building a "code brain" entry for a developer's personal knowledge base.
 Below is context for ONE project (${sourceLabel}).
 
-Produce FIVE markdown documents. Rules:
+Produce SIX markdown documents. Rules:
 - Base everything STRICTLY on the provided context. Never invent packages, files, or behavior.
 - Be concise and scannable: short bullets, short lines, grouped. No long paragraphs.
 - For implementations, paste REAL code snippets copied from the provided context or chunk summaries.
 - If something is genuinely unknown (e.g. git URL), write "TODO".
 - Mention skipped large files when they appear in the context; do not pretend their contents were analyzed.
+- For configuration, list key names and file paths only. Never include real secret values.
 - Do not copy the guidance bullets below. Replace them with project-specific facts from the context.
 
 Output EXACTLY in this delimiter format. Nothing before, after, or between except the documents:
@@ -140,6 +141,14 @@ Output EXACTLY in this delimiter format. Nothing before, after, or between excep
 - Explain non-obvious decisions and why they matter.
 - Explain things to remember and potential pitfalls.
 
+===FILE:05-configuration===
+# ${projectName} - Configuration
+- List configuration files and what they control.
+- List environment variables, API key names, connection-string names, and integration keys by name only.
+- Explain likely frontend/backend config boundaries when visible.
+- Say clearly if no configuration or integration keys are detected.
+- Never include real secret values.
+
 PROJECT CONTEXT:
 ${projectContext}`;
 }
@@ -150,7 +159,7 @@ This is an evidence extraction pass, not the final documentation pass.
 
 Rules:
 - Use ONLY this chunk.
-- Preserve exact file paths, class/function names, package names, commands, and config facts.
+- Preserve exact file paths, class/function names, package names, commands, config keys, and env var names.
 - Include skipped-large-file facts if listed in the repeated project snapshot.
 - Capture important snippets as short fenced code blocks copied from this chunk.
 - If this chunk has only metadata or partial source, say that plainly.
@@ -160,6 +169,7 @@ Return markdown with these headings:
 ## Files covered
 ## Architecture facts
 ## Dependencies and config
+## Configuration and integrations
 ## Implementations and snippets
 ## Decisions and gotchas
 ## Unknowns or skipped detail
@@ -173,9 +183,9 @@ function mergeEvidencePrompt(evidence, label) {
 
 Rules:
 - Preserve all distinct important facts.
-- Preserve file paths and names.
+- Preserve file paths, env var names, and config key names.
 - Keep useful copied code snippets, but trim duplicates.
-- Mention skipped large files and unknowns.
+- Mention skipped style/media files, skipped large files, config facts, and unknowns.
 - Do not invent anything.
 - Keep the result under 2200 words.
 
@@ -189,6 +199,28 @@ function parseDelimitedFiles(text) {
   let m;
   while ((m = regex.exec(text)) !== null) parts[m[1].trim()] = m[2].trim();
   return parts;
+}
+
+function contextSectionMarkdown(source, heading) {
+  const pattern = new RegExp(`^## ${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'm');
+  const match = String(source || '').match(pattern);
+  if (!match) return '';
+  const start = match.index + match[0].length;
+  const rest = String(source || '').slice(start);
+  const end = rest.search(/^##\s+/m);
+  return (end === -1 ? rest : rest.slice(0, end)).trim();
+}
+
+function configurationFallbackMarkdown() {
+  const summary = contextSectionMarkdown(context, 'Configuration & integrations');
+  return `# ${projectName} - Configuration
+
+${summary || '_No configuration or integration key references detected in the raw context._'}
+
+## Safety
+
+- Values are redacted.
+- Real secret values and full local secret files are not copied into this generated summary.`;
 }
 
 function sleep(ms) {
@@ -534,6 +566,9 @@ ${summary.trim()}`);
     if (parts[key]) {
       fs.writeFileSync(path.join(projDir, `${key}.md`), parts[key] + '\n');
       written++;
+    } else if (key === '05-configuration') {
+      fs.writeFileSync(path.join(projDir, `${key}.md`), configurationFallbackMarkdown() + '\n');
+      written++;
     } else {
       console.warn(`  ! missing section: ${key}`);
     }
@@ -544,7 +579,7 @@ ${summary.trim()}`);
   rebuildDashboard(brainDir);
 
   console.log(`Refined "${projectName}" -> ${projDir}`);
-  console.log(`Sections: ${written}/5${chunkCount > 1 ? `  (context split into ${chunkCount} chunks; no raw truncation)` : ''}`);
+  console.log(`Sections: ${written}/${SECTIONS.length}${chunkCount > 1 ? `  (context split into ${chunkCount} chunks; no raw truncation)` : ''}`);
 }
 
 function rebuildDashboard(dir) {
@@ -583,7 +618,7 @@ function rebuildIndex(dir) {
 ${rows.join('\n')}
 
 ## Folders
-- \`projects/\` — one folder per project (00 overview … 04 gotchas + raw context)
+- \`projects/\` — one folder per project (00 overview ... 05 configuration + raw context)
 - \`patterns/\` — cross-project reusable patterns (write by hand as you spot them)
 - \`ideas/\` — new ideas, dated YYYY-MM-DD
 `;

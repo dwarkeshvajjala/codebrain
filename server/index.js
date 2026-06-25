@@ -127,6 +127,17 @@ function parseContextList(context, heading) {
     .map(line => line.replace(/^-\s*/, ''));
 }
 
+function contextSection(context, heading) {
+  const pattern = new RegExp(`^## ${heading.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`, 'm');
+  const text = String(context || '');
+  const match = text.match(pattern);
+  if (!match) return '';
+  const start = match.index + match[0].length;
+  const rest = text.slice(start);
+  const end = rest.search(/^##\s+/m);
+  return (end === -1 ? rest : rest.slice(0, end)).trim();
+}
+
 function numberFromMeta(value) {
   const parsed = Number(String(value || '').replace(/[^\d]/g, ''));
   return Number.isFinite(parsed) ? parsed : 0;
@@ -148,6 +159,8 @@ function parseRawContextInfo(context) {
     filesIncluded: numberFromMeta(meta['files included']),
     filesSummarized: numberFromMeta(meta['files summarized (large data/notebooks)']),
     filesSkipped: numberFromMeta(meta['files skipped (> 120 kb)'] || meta['files skipped (> 250 kb)']),
+    styleFilesIgnored: numberFromMeta(meta['style files ignored']),
+    mediaAssetsIgnored: numberFromMeta(meta['media/design assets ignored']),
     fileTypes,
     skippedLargeFiles: parseContextList(context, 'Skipped large files'),
     summarizedFiles: parseContextList(context, 'Summarized data/notebook files'),
@@ -167,7 +180,7 @@ function projectPathFor(slug) {
 
 function titleFrom(markdown, fallback) {
   const match = markdown.match(/^#\s+(.+)$/m);
-  return match ? match[1].replace(/\s+-\s+(Overview|Architecture|Packages|Key Implementations|Decisions & Gotchas)$/i, '').trim() : fallback;
+  return match ? match[1].replace(/\s+-\s+(Overview|Architecture|Packages|Key Implementations|Decisions & Gotchas|Configuration)$/i, '').trim() : fallback;
 }
 
 function summaryFrom(markdown) {
@@ -187,6 +200,7 @@ function readProject(slug) {
     ['02-packages', 'Packages', '02-packages.md'],
     ['03-implementations', 'Implementations', '03-implementations.md'],
     ['04-gotchas', 'Gotchas', '04-gotchas.md'],
+    ['05-configuration', 'Configuration', '05-configuration.md'],
     ['raw.context', 'Raw Context', 'raw.context.md'],
   ];
 
@@ -205,21 +219,32 @@ function readProject(slug) {
   };
 }
 
-function writeBundleOnlyProject(slug, contextPath, sourceUrl) {
+function writeBundleOnlyProject(slug, contextPath, sourceUrl, reason = 'Groq refine is not configured') {
   const context = fs.readFileSync(contextPath, 'utf8');
   const meta = parseContextMeta(context);
   const projectDir = path.join(PROJECTS_DIR, slug);
   fs.mkdirSync(projectDir, { recursive: true });
   fs.copyFileSync(contextPath, path.join(projectDir, 'raw.context.md'));
 
+  const projectName = meta.project || slug;
   const overviewPath = path.join(projectDir, '00-overview.md');
   const existingOverview = readIfExists(overviewPath);
+  const configSummary = contextSection(context, 'Configuration & integrations');
+  fs.writeFileSync(path.join(projectDir, '05-configuration.md'), `# ${projectName} - Configuration
+
+${configSummary || '_No configuration or integration key references detected in the raw context._'}
+
+## Safety
+
+- Values are redacted.
+- Real secret values and full local secret files are not copied into this generated summary.
+`);
+
   if (existingOverview && !existingOverview.includes('Bundle-only import')) return;
 
-  const projectName = meta.project || slug;
   fs.writeFileSync(overviewPath, `# ${projectName} - Overview
 
-- Bundle-only import created because Groq refine is not configured.
+- Bundle-only import created because ${reason}.
 - Source path: ${meta['source path'] || 'TODO'}
 - Git URL: ${sourceUrl || meta['git url'] || 'TODO'}
 - Files included: ${meta['files included'] || 'TODO'}
@@ -227,7 +252,7 @@ function writeBundleOnlyProject(slug, contextPath, sourceUrl) {
 
 ## Next Step
 
-- Set \`GROQ_API_KEY\` in local \`.env\`, restart the server, and import again to generate architecture, packages, implementations, and gotchas.
+- Set or restore \`GROQ_API_KEY\` in local \`.env\`, restart the server, and import again to generate architecture, packages, implementations, and gotchas.
 - Until then, open \`raw.context.md\` for the bundled source context.
 `);
 }
@@ -309,14 +334,10 @@ function runCommand(job, command, args, options = {}) {
   });
 }
 
-function createJob(repoUrl, options) {
-  const id = crypto.randomUUID();
-  const normalizedUrl = normalizeGitHubUrl(repoUrl);
-  const slug = slugFromSource(normalizedUrl);
-  const job = {
-    id,
+function baseJob(slug, details = {}) {
+  return {
+    id: crypto.randomUUID(),
     slug,
-    repoUrl: normalizedUrl,
     status: 'queued',
     step: 'Queued',
     createdAt: new Date().toISOString(),
@@ -324,18 +345,44 @@ function createJob(repoUrl, options) {
     logs: [],
     project: null,
     error: null,
+    ...details,
   };
-  jobs.set(id, job);
-  importQueue.push({ job, options });
+}
+
+function enqueueJob(job, run) {
+  jobs.set(job.id, job);
+  importQueue.push({ job, run });
   processImportQueue();
   return job;
+}
+
+function createJob(repoUrl, options) {
+  const normalizedUrl = normalizeGitHubUrl(repoUrl);
+  const slug = slugFromSource(normalizedUrl);
+  const job = baseJob(slug, {
+    repoUrl: normalizedUrl,
+    type: 'import',
+  });
+  return enqueueJob(job, () => runImport(job, options));
+}
+
+function createAnalysisJob(slug, options = {}) {
+  const projectDir = projectPathFor(slug);
+  if (!projectDir) return null;
+  const contextPath = path.join(projectDir, 'raw.context.md');
+  if (!fs.existsSync(contextPath)) return null;
+  const job = baseJob(slug, {
+    type: 'analysis',
+    step: 'Queued AI analysis',
+  });
+  return enqueueJob(job, () => runAnalysis(job, options));
 }
 
 function processImportQueue() {
   while (activeImports < MAX_IMPORT_CONCURRENCY && importQueue.length) {
     const task = importQueue.shift();
     activeImports++;
-    runImport(task.job, task.options)
+    task.run()
       .catch(err => {
         task.job.status = 'failed';
         task.job.step = 'Failed';
@@ -380,22 +427,29 @@ async function runImport(job, options) {
       job.repoUrl,
     ]);
 
-    if (process.env.GROQ_API_KEY) {
+    if (options.analyze && process.env.GROQ_API_KEY) {
       job.step = 'Generating markdown brain files';
-      await runCommand(job, 'node', [
-        path.join(ROOT, 'scripts', 'brain-refine.js'),
-        contextPath,
-        '--out',
-        BRAIN_DIR,
-        '--model',
-        model,
-        '--maxchars',
-        maxChars,
-      ]);
+      try {
+        await runCommand(job, 'node', [
+          path.join(ROOT, 'scripts', 'brain-refine.js'),
+          contextPath,
+          '--out',
+          BRAIN_DIR,
+          '--model',
+          model,
+          '--maxchars',
+          maxChars,
+        ]);
+      } catch (err) {
+        job.step = 'Saving raw bundle after AI refine failure';
+        job.logs.push(`AI refine failed; saving raw bundle fallback: ${err.message}`);
+        writeBundleOnlyProject(job.slug, contextPath, job.repoUrl, 'AI refine failed or was rate-limited');
+      }
     } else {
       job.step = 'Creating raw bundle project';
-      job.logs.push('GROQ_API_KEY is missing. Skipping AI refine and saving raw context only.');
-      writeBundleOnlyProject(job.slug, contextPath, job.repoUrl);
+      if (options.analyze) job.logs.push('GROQ_API_KEY is missing. Skipping AI refine and saving raw context only.');
+      else job.logs.push('AI analysis was not requested. Saving raw context and deterministic configuration only.');
+      writeBundleOnlyProject(job.slug, contextPath, job.repoUrl, options.analyze ? 'Groq refine is not configured' : 'AI analysis has not been run yet');
     }
 
     job.step = 'Refreshing dashboard';
@@ -418,6 +472,44 @@ async function runImport(job, options) {
     }
     job.updatedAt = new Date().toISOString();
   }
+}
+
+async function runAnalysis(job, options) {
+  const projectDir = projectPathFor(job.slug);
+  if (!projectDir) throw new Error('Project not found');
+  const contextPath = path.join(projectDir, 'raw.context.md');
+  if (!fs.existsSync(contextPath)) throw new Error('Raw context is missing. Re-import the project first.');
+  if (!process.env.GROQ_API_KEY) throw new Error('GROQ_API_KEY is missing. Add it to .env and restart the server.');
+
+  const maxChars = String(options.maxChars || 30000);
+  const model = options.model || process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+
+  job.status = 'running';
+  job.step = 'Generating AI analysis';
+  job.updatedAt = new Date().toISOString();
+
+  await runCommand(job, 'node', [
+    path.join(ROOT, 'scripts', 'brain-refine.js'),
+    contextPath,
+    '--out',
+    BRAIN_DIR,
+    '--model',
+    model,
+    '--maxchars',
+    maxChars,
+  ]);
+
+  job.step = 'Syncing remote storage';
+  try {
+    await syncRemoteBrain(job);
+  } catch (err) {
+    job.logs.push(`Remote storage sync failed: ${err.message}`);
+  }
+
+  job.status = 'complete';
+  job.step = 'AI analysis complete';
+  job.project = readProject(job.slug);
+  job.updatedAt = new Date().toISOString();
 }
 
 app.get('/api/health', (req, res) => {
@@ -468,6 +560,7 @@ app.post('/api/import', (req, res) => {
     maxKb: Number(req.body.maxKb || 120),
     maxChars: Number(req.body.maxChars || 30000),
     model: req.body.model,
+    analyze: req.body.analyze === true,
   });
   res.status(202).json({ job });
 });
@@ -483,9 +576,25 @@ app.post('/api/import-bulk', (req, res) => {
     maxKb: Number(req.body.maxKb || 120),
     maxChars: Number(req.body.maxChars || 30000),
     model: req.body.model,
+    analyze: req.body.analyze === true,
   };
   const queuedJobs = urls.map(url => createJob(url, options));
   res.status(202).json({ jobs: queuedJobs, warnings });
+});
+
+app.post('/api/projects/:slug/analyze', (req, res) => {
+  const slug = req.params.slug;
+  if (!isSafeSlug(slug)) return res.status(400).json({ error: 'Invalid project slug' });
+  const projectDir = projectPathFor(slug);
+  if (!projectDir || !fs.existsSync(projectDir)) return res.status(404).json({ error: 'Project not found' });
+  if (!process.env.GROQ_API_KEY) return res.status(400).json({ error: 'GROQ_API_KEY is missing. Add it to .env and restart the server.' });
+
+  const job = createAnalysisJob(slug, {
+    maxChars: Number(req.body.maxChars || 30000),
+    model: req.body.model,
+  });
+  if (!job) return res.status(400).json({ error: 'Raw context is missing. Re-import the project first.' });
+  res.status(202).json({ job });
 });
 
 app.delete('/api/projects/:slug', async (req, res) => {

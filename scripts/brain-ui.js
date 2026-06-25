@@ -48,6 +48,7 @@ const SECTION_FILES = [
   ['02-packages', 'Packages'],
   ['03-implementations', 'Implementations'],
   ['04-gotchas', 'Gotchas'],
+  ['05-configuration', 'Configuration'],
   ['raw.context', 'Raw Context'],
 ];
 
@@ -107,7 +108,7 @@ function rebuildMarkdownIndex(projects) {
 ${rows.join('\n')}
 
 ## Folders
-- \`projects/\` - one folder per project (00 overview to 04 gotchas + raw context)
+- \`projects/\` - one folder per project (00 overview to 05 configuration + raw context)
 - \`patterns/\` - cross-project reusable patterns
 - \`ideas/\` - new ideas, dated YYYY-MM-DD
 

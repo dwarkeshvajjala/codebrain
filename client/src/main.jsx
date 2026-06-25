@@ -8,6 +8,7 @@ const SECTION_ORDER = [
   '02-packages',
   '03-implementations',
   '04-gotchas',
+  '05-configuration',
   'raw.context',
 ];
 
@@ -17,6 +18,7 @@ const SECTION_LABELS = {
   '02-packages': 'Packages',
   '03-implementations': 'Implementations',
   '04-gotchas': 'Gotchas',
+  '05-configuration': 'Configuration',
   'raw.context': 'Raw Context',
 };
 
@@ -138,6 +140,10 @@ function projectMode(project) {
   return keys.has('01-architecture') ? 'AI notes' : 'Raw bundle';
 }
 
+function hasAiNotes(project) {
+  return new Set((project?.sections || []).map(section => section.key)).has('01-architecture');
+}
+
 function repoInputItems(value) {
   return String(value || '').split(/[\s,]+/).map(item => item.trim()).filter(Boolean);
 }
@@ -148,6 +154,8 @@ function projectStats(project) {
     ['Files', meta.filesIncluded || 0],
     ['Summarized', meta.filesSummarized || 0],
     ['Skipped', meta.filesSkipped || 0],
+    ['Styles ignored', meta.styleFilesIgnored || 0],
+    ['Assets ignored', meta.mediaAssetsIgnored || 0],
     ['Sections', project?.sections?.length || 0],
   ];
 }
@@ -163,6 +171,10 @@ function storageLabel(storage) {
   if (storage.readConfigured) return `${storage.provider} brain`;
   if (storage.writeConfigured) return `${storage.provider} ready`;
   return 'Local markdown';
+}
+
+function activeJobCount(jobs) {
+  return jobs.filter(item => ['queued', 'running'].includes(item.status)).length;
 }
 
 function BrainMark() {
@@ -231,6 +243,9 @@ function App() {
   const selectedProject = projects.find(project => project.slug === selectedSlug) || projects[0];
   const sections = selectedProject?.sections || [];
   const section = sections.find(item => item.key === selectedSection) || sections[0];
+  const selectedProjectAnalyzing = selectedProject
+    ? jobs.some(item => item.slug === selectedProject.slug && item.type === 'analysis' && ['queued', 'running'].includes(item.status))
+    : false;
 
   const filteredProjects = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -290,6 +305,22 @@ function App() {
     }
   }
 
+  async function analyzeProject(slug) {
+    if (!slug) return;
+    setError('');
+    setNotice('');
+    try {
+      const data = await api(`/api/projects/${slug}/analyze`, {
+        method: 'POST',
+        body: JSON.stringify({ maxChars: 30000 }),
+      });
+      setJobs(current => [data.job, ...current].slice(0, 24));
+      setNotice(`AI analysis queued for ${slug}. New tabs will appear when it finishes.`);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   async function deleteProject(slug) {
     if (!slug) return;
     setError('');
@@ -329,7 +360,7 @@ function App() {
               placeholder={'https://github.com/owner/repo\nhttps://github.com/owner/another-repo'}
               rows={3}
             />
-            <button type="submit" disabled={!repoUrl.trim() || jobs.some(item => ['queued', 'running'].includes(item.status))}>
+            <button type="submit" disabled={!repoUrl.trim() || activeJobCount(jobs) > 0}>
               Import{repoInputItems(repoUrl).length > 1 ? ` ${repoInputItems(repoUrl).length}` : ''}
             </button>
           </div>
@@ -338,7 +369,7 @@ function App() {
             Delete cloned repo automatically after markdown is generated
           </label>
           <p className="hint">
-            The backend clones, bundles, summarizes bulky data assets, writes markdown, refreshes the brain, then removes the temp clone. If Groq is configured, large repos are chunked before AI notes are merged.
+            Import first clones and bundles a repo into raw markdown with deterministic configuration extraction. Run AI analysis later from the project page when you actually want Groq to spend tokens.
           </p>
         </form>
 
@@ -385,9 +416,9 @@ function App() {
         <header className="hero">
           <div>
             <p className="eyebrow">Autonomous markdown generation</p>
-            <h2>Paste a repo. Grow the brain.</h2>
+            <h2>Paste a repo. Build the raw brain.</h2>
             <p>
-              Code Brain turns repos into raw context first, then adds overview, architecture, package, implementation, and gotcha notes when Groq is available.
+              Code Brain imports repos quickly first, extracts configuration and integrations without AI, then lets you run Groq analysis as a second step.
             </p>
           </div>
           <div className="metrics">
@@ -403,21 +434,23 @@ function App() {
           <section className="job-panel">
             <div className="job-head">
               <div>
-                <strong>Import queue</strong>
-                <span>{jobs.filter(item => ['queued', 'running'].includes(item.status)).length} active or queued</span>
+                <strong>Job queue</strong>
+                <span>{activeJobCount(jobs)} active or queued</span>
               </div>
-              <b>{jobs.length} shown</b>
+              <button className="mini-btn" type="button" onClick={() => setJobs(current => current.filter(item => ['queued', 'running'].includes(item.status)))}>
+                Clear finished
+              </button>
             </div>
             <div className="job-list">
               {jobs.map(item => (
                 <article className={`job-card ${item.status}`} key={item.id}>
                   <div>
                     <strong>{item.slug}</strong>
-                    <span>{item.step}</span>
+                    <span>{item.type === 'analysis' ? 'AI analysis' : 'Import'} - {item.step}</span>
                     {item.error && <em>{item.error}</em>}
                   </div>
                   <b>{item.status}</b>
-                  <details>
+                  <details open={['running', 'failed'].includes(item.status)}>
                     <summary>Logs</summary>
                     <pre>{item.logs?.slice(-10).join('\n') || 'Waiting...'}</pre>
                   </details>
@@ -441,6 +474,16 @@ function App() {
                   <span className="project-chip">{sections.length} file{sections.length === 1 ? '' : 's'}</span>
                   {projectSourceUrl(selectedProject) && (
                     <a className="source-link" href={projectSourceUrl(selectedProject)} target="_blank" rel="noreferrer">Source</a>
+                  )}
+                  {!hasAiNotes(selectedProject) && (
+                    <button
+                      type="button"
+                      className="analyze-btn"
+                      onClick={() => analyzeProject(selectedProject.slug)}
+                      disabled={selectedProjectAnalyzing}
+                    >
+                      {selectedProjectAnalyzing ? 'Analyzing...' : 'Analyze with AI'}
+                    </button>
                   )}
                   {deleteSlug === selectedProject.slug ? (
                     <div className="delete-confirm">

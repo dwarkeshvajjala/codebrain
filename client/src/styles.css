@@ -533,6 +533,21 @@ button {
   text-decoration: none;
 }
 
+.analyze-btn {
+  border: 1px solid #b7d8ca;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.analyze-btn:disabled {
+  cursor: not-allowed;
+  opacity: .62;
+}
+
 .delete-btn,
 .danger-btn,
 .ghost-btn {

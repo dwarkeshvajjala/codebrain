@@ -17,19 +17,21 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 // ---------- args ----------
-const USAGE = `Usage: node scripts/brain-bundle.js [projectDir] [--out file] [--maxkb N] [--source-url url]
+const USAGE = `Usage: node scripts/brain-bundle.js [projectDir] [--out file] [--maxkb N] [--source-url url] [--include-styles]
 
 Options:
-  --out file       Write the generated context markdown to this path.
-  --maxkb N        Skip source files larger than N KB. Default: 250.
-  --source-url url Store the repo/source URL in the generated context.
-  -h, --help       Show this help.`;
+  --out file        Write the generated context markdown to this path.
+  --maxkb N         Skip source files larger than N KB. Default: 250.
+  --source-url url  Store the repo/source URL in the generated context.
+  --include-styles  Include CSS/SCSS/Less/Stylus files. Default: skip style files.
+  -h, --help        Show this help.`;
 
 const args = process.argv.slice(2);
 let targetDir = process.cwd();
 let outPath = null;
 let maxKb = 250;
 let sourceUrl = '';
+let includeStyles = false;
 let sawTarget = false;
 
 function readOptionValue(flag, index) {
@@ -50,6 +52,7 @@ for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--out') outPath = path.resolve(readOptionValue(a, i++));
   else if (a === '--source-url') sourceUrl = readOptionValue(a, i++);
+  else if (a === '--include-styles') includeStyles = true;
   else if (a === '--maxkb') {
     const parsed = parseInt(readOptionValue(a, i++), 10);
     if (!Number.isFinite(parsed) || parsed <= 0) {
@@ -93,7 +96,7 @@ const EXCLUDED_DIRS = new Set([
   'node_modules', 'bin', 'obj', 'dist', 'build', 'out', '.next', '.nuxt',
   '.turbo', '.cache', '.git', '.vs', '.vscode', '.idea', '.svelte-kit',
   'vendor', '__pycache__', '.pytest_cache', 'target', 'Pods', 'DerivedData',
-  'coverage', '_repos', '_staging'
+  'coverage', '_repos', '_staging', '_runs'
 ]);
 
 const EXCLUDED_FILES = new Set([
@@ -105,9 +108,18 @@ const EXCLUDED_FILES = new Set([
 const EXCLUDED_EXT = new Set([
   '.dll', '.pdb', '.exe', '.user', '.suo', '.bin', '.so', '.dylib',
   '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.avif', '.bmp',
+  '.heic', '.heif', '.tif', '.tiff', '.psd', '.ai', '.eps', '.fig', '.sketch',
   '.mp4', '.webm', '.mov', '.mp3', '.wav',
   '.woff', '.woff2', '.ttf', '.eot', '.otf',
-  '.pdf', '.zip', '.tar', '.gz', '.rar', '.7z', '.map', '.log'
+  '.pdf', '.zip', '.tar', '.gz', '.rar', '.7z', '.map', '.log', '.pid'
+]);
+
+const STYLE_EXT = new Set(['.css', '.scss', '.sass', '.less', '.styl', '.pcss']);
+const MEDIA_EXT = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.avif', '.bmp',
+  '.heic', '.heif', '.tif', '.tiff', '.psd', '.ai', '.eps', '.fig', '.sketch',
+  '.mp4', '.webm', '.mov', '.mp3', '.wav',
+  '.woff', '.woff2', '.ttf', '.eot', '.otf',
 ]);
 
 const LANG = {
@@ -123,13 +135,15 @@ const LARGE_DATA_EXT = new Set(['.json', '.txt', '.csv', '.tsv']);
 const LARGE_DATA_BYTES = 24 * 1024;
 
 function isExcludedFile(name) {
+  const ext = path.extname(name).toLowerCase();
   if (EXCLUDED_FILES.has(name)) return true;
   if (name.startsWith('.env')) return true;
   if (name.startsWith('appsettings.')) return true;
   if (name.endsWith('.context.md')) return true;
   if (name === 'raw.context.md') return true;
   if (/\.min\.(js|css)$/.test(name)) return true;
-  if (EXCLUDED_EXT.has(path.extname(name).toLowerCase())) return true;
+  if (!includeStyles && STYLE_EXT.has(ext)) return true;
+  if (EXCLUDED_EXT.has(ext)) return true;
   return false;
 }
 
@@ -211,9 +225,185 @@ function summaryForFile(file) {
   }
 }
 
+// ---------- configuration inspection ----------
+const CONFIG_MAX_BYTES = 512 * 1024;
+const CONFIG_EXACT_FILES = new Set([
+  '.env', '.env.example', '.env.sample', '.env.template', '.env.local',
+  '.npmrc', '.yarnrc', '.pypirc',
+  'app.config', 'app.config.js', 'app.config.ts',
+  'appsettings.json', 'local.settings.json', 'launchsettings.json',
+  'application.yml', 'application.yaml', 'application.properties',
+  'dockerfile', 'docker-compose.yml', 'docker-compose.yaml',
+  'firebase.json', 'vercel.json', 'netlify.toml', 'serverless.yml', 'serverless.yaml',
+  'vite.config.js', 'vite.config.ts', 'next.config.js', 'next.config.mjs',
+  'webpack.config.js', 'webpack.config.ts', 'angular.json',
+  'tsconfig.json', 'jsconfig.json', 'nuget.config', 'web.config',
+]);
+const CONFIG_EXT = new Set(['.json', '.yml', '.yaml', '.toml', '.config', '.xml', '.properties', '.ini']);
+const CONFIG_PATH_RE = /(^|[\\/])(?:config|configs|configuration|settings|environments?|secrets?|deploy|deployment)([\\/]|$)/i;
+const CONFIG_KEY_RE = /(api[_-]?key|secret|token|password|passwd|pwd|connection[_-]?string|database[_-]?url|client[_-]?secret|client[_-]?id|tenant[_-]?id|issuer|audience|authority|endpoint|base[_-]?url|webhook|dsn|bucket|region|cloud|supabase|firebase|stripe|groq|openai|anthropic|aws|azure|gcp|s3|redis|mongo|postgres|mysql|smtp|oauth|jwt)/i;
+const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{2,}$/;
+
+const configFiles = new Map();
+const envRefs = new Map();
+const configKeyRefs = new Map();
+
+function addRef(map, key, rel) {
+  if (!key) return;
+  const normalized = String(key).trim().replace(/^["']|["']$/g, '');
+  if (!normalized) return;
+  if (!map.has(normalized)) map.set(normalized, new Set());
+  map.get(normalized).add(rel);
+}
+
+function normalizeConfigKey(key) {
+  return String(key || '').trim().replace(/^["']|["']$/g, '');
+}
+
+function isLikelyConfigFile(rel) {
+  const normalized = rel.replace(/\\/g, '/');
+  const name = path.basename(normalized).toLowerCase();
+  if (CONFIG_EXACT_FILES.has(name)) return true;
+  if (name.startsWith('.env')) return true;
+  if (name.startsWith('appsettings.')) return true;
+  if (name.includes('config') || name.includes('settings')) return true;
+  if (CONFIG_PATH_RE.test(normalized)) return true;
+  return CONFIG_EXT.has(path.extname(name).toLowerCase()) && CONFIG_PATH_RE.test(normalized);
+}
+
+function configKind(rel) {
+  const name = path.basename(rel).toLowerCase();
+  if (name.startsWith('.env')) return 'env template/key file';
+  if (name.includes('appsettings') || name === 'local.settings.json') return '.NET settings';
+  if (name.includes('docker')) return 'container/deploy config';
+  if (name.includes('vite') || name.includes('next') || name.includes('webpack') || name === 'angular.json') return 'frontend build config';
+  if (name === 'package.json') return 'npm metadata';
+  if (name.endsWith('.csproj') || name === 'nuget.config') return '.NET package/config';
+  return 'configuration';
+}
+
+function safeTextFile(rel, full, size) {
+  if (size > CONFIG_MAX_BYTES) return '';
+  const ext = path.extname(rel).toLowerCase();
+  if (MEDIA_EXT.has(ext) || EXCLUDED_EXT.has(ext) && !CONFIG_EXT.has(ext)) return '';
+  try {
+    const buffer = fs.readFileSync(full);
+    if (buffer.includes(0)) return '';
+    return buffer.toString('utf8');
+  } catch {
+    return '';
+  }
+}
+
+function walkJsonKeys(value, prefix, rel) {
+  if (Array.isArray(value)) {
+    value.slice(0, 20).forEach((item, index) => walkJsonKeys(item, `${prefix}[${index}]`, rel));
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  for (const [key, child] of Object.entries(value)) {
+    const current = prefix ? `${prefix}.${key}` : key;
+    if (CONFIG_KEY_RE.test(key)) addRef(configKeyRefs, current, rel);
+    walkJsonKeys(child, current, rel);
+  }
+}
+
+function inspectEnvLikeLines(text, rel) {
+  for (const line of text.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#') || trimmed.startsWith('//')) continue;
+    const envMatch = trimmed.match(/^(?:export\s+)?([A-Z][A-Z0-9_]{2,})\s*=/);
+    if (envMatch) addRef(envRefs, envMatch[1], rel);
+
+    const keyMatch = trimmed.match(/^["']?([A-Za-z][A-Za-z0-9_.:-]*(?:key|secret|token|password|url|uri|endpoint|clientId|clientSecret|connectionString|databaseUrl|apiKey|projectId|bucket|region))["']?\s*[:=]/i);
+    if (keyMatch) addRef(configKeyRefs, normalizeConfigKey(keyMatch[1]), rel);
+  }
+}
+
+function inspectCodeEnvRefs(text, rel) {
+  const patterns = [
+    /\bprocess\.env\.([A-Z][A-Z0-9_]*)/g,
+    /\bprocess\.env\[['"`]([A-Z][A-Z0-9_]*)['"`]\]/g,
+    /\bimport\.meta\.env\.([A-Z][A-Z0-9_]*)/g,
+    /\b(?:Deno\.env\.get|os\.getenv|getenv)\(\s*['"`]([A-Z][A-Z0-9_]*)['"`]/g,
+    /\bos\.environ\[['"`]([A-Z][A-Z0-9_]*)['"`]\]/g,
+    /\bConfiguration\[['"`]([^'"`\]]+)['"`]\]/g,
+    /\bGetConnectionString\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
+  ];
+
+  for (const pattern of patterns) {
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      const key = match[1];
+      if (ENV_NAME_RE.test(key)) addRef(envRefs, key, rel);
+      else addRef(configKeyRefs, key, rel);
+    }
+  }
+}
+
+function inspectConfiguration(rel, full, size) {
+  const likelyConfig = isLikelyConfigFile(rel);
+  const text = safeTextFile(rel, full, size);
+  if (!text) return;
+
+  if (likelyConfig) configFiles.set(rel, configKind(rel));
+  inspectCodeEnvRefs(text, rel);
+  if (likelyConfig) inspectEnvLikeLines(text, rel);
+
+  if (likelyConfig && path.extname(rel).toLowerCase() === '.json') {
+    try {
+      walkJsonKeys(JSON.parse(text), '', rel);
+    } catch {
+      inspectEnvLikeLines(text, rel);
+    }
+  }
+}
+
+function refsMarkdown(map, limit = 80) {
+  return [...map.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .slice(0, limit)
+    .map(([key, files]) => `- \`${key}\` in ${[...files].sort().slice(0, 6).join(', ')}${files.size > 6 ? ` (+${files.size - 6} more)` : ''}`)
+    .join('\n');
+}
+
+function formatConfigurationSummary() {
+  const lines = [
+    'Values are redacted. Real secret values and full `.env`/settings files are not copied into this summary.',
+  ];
+
+  if (configFiles.size) {
+    lines.push('', '### Config files detected');
+    for (const [rel, kind] of [...configFiles.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(0, 80)) {
+      lines.push(`- ${rel} (${kind})`);
+    }
+  }
+
+  if (envRefs.size) {
+    lines.push('', '### Environment/API key references');
+    lines.push(refsMarkdown(envRefs));
+  }
+
+  const publicEnv = [...envRefs.keys()].filter(key => /^(VITE_|NEXT_PUBLIC_|REACT_APP_|PUBLIC_)/.test(key)).sort();
+  if (publicEnv.length) {
+    lines.push('', '### Public frontend env keys');
+    for (const key of publicEnv.slice(0, 60)) lines.push(`- \`${key}\``);
+  }
+
+  if (configKeyRefs.size) {
+    lines.push('', '### Sensitive-looking config keys');
+    lines.push(refsMarkdown(configKeyRefs));
+  }
+
+  if (lines.length === 1) lines.push('', '_No explicit config or integration key references detected._');
+  return lines.join('\n');
+}
+
 // ---------- walk ----------
 const collected = [];     // { rel, full, size }
 const skippedLarge = [];  // { rel, size }
+const skippedStyles = [];
+const skippedMedia = [];
 
 function walk(dir) {
   let entries;
@@ -232,7 +422,6 @@ function walk(dir) {
       continue;
     }
     if (!e.isFile()) continue;
-    if (isExcludedFile(e.name)) continue;
 
     let size = 0;
     try {
@@ -242,6 +431,18 @@ function walk(dir) {
     }
     const rel = path.relative(ROOT, full);
     if (rel === path.join('brain', 'index.html')) continue;
+    if (/^brain[\\/](?:projects|_repos|_runs|_staging)[\\/]/i.test(rel)) continue;
+    inspectConfiguration(rel, full, size);
+    const ext = path.extname(e.name).toLowerCase();
+    if (!includeStyles && STYLE_EXT.has(ext)) {
+      skippedStyles.push({ rel, size });
+      continue;
+    }
+    if (MEDIA_EXT.has(ext)) {
+      skippedMedia.push({ rel, size });
+      continue;
+    }
+    if (isExcludedFile(e.name)) continue;
     if (size > MAX_BYTES) {
       skippedLarge.push({ rel, size });
       continue;
@@ -332,11 +533,28 @@ stream.write(`- Source path: ${ROOT}\n`);
 stream.write(`- Git URL: ${detectGitUrl()}\n`);
 stream.write(`- Files included: ${collected.length}\n`);
 stream.write(`- Files summarized (large data/notebooks): ${summarizedFiles.length}\n`);
-stream.write(`- Files skipped (> ${maxKb} KB): ${skippedLarge.length}\n\n`);
+stream.write(`- Files skipped (> ${maxKb} KB): ${skippedLarge.length}\n`);
+stream.write(`- Style files ignored: ${skippedStyles.length}${includeStyles ? ' (style inclusion enabled)' : ''}\n`);
+stream.write(`- Media/design assets ignored: ${skippedMedia.length}\n\n`);
 
 stream.write(`## Detected stack & packages\n\n${detectStack()}\n\n`);
+stream.write(`## Configuration & integrations\n\n${formatConfigurationSummary()}\n\n`);
 stream.write(`## File type breakdown\n\n${extStats()}\n\n`);
 stream.write(`## File tree\n\n\`\`\`\n${buildTree(collected.map(f => f.rel))}\n\`\`\`\n\n`);
+
+if (skippedStyles.length) {
+  stream.write(`## Ignored style files\n\n`);
+  for (const s of skippedStyles.slice(0, 120)) stream.write(`- ${s.rel} (${Math.round(s.size / 1024)} KB)\n`);
+  if (skippedStyles.length > 120) stream.write(`- ... ${skippedStyles.length - 120} more style file(s)\n`);
+  stream.write('\n');
+}
+
+if (skippedMedia.length) {
+  stream.write(`## Ignored media/design assets\n\n`);
+  for (const s of skippedMedia.slice(0, 80)) stream.write(`- ${s.rel} (${Math.round(s.size / 1024)} KB)\n`);
+  if (skippedMedia.length > 80) stream.write(`- ... ${skippedMedia.length - 80} more asset file(s)\n`);
+  stream.write('\n');
+}
 
 if (skippedLarge.length) {
   stream.write(`## Skipped large files\n\n`);
